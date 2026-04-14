@@ -1,0 +1,15 @@
+[Unit]
+Description=Node.js Dashboard App
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/usr/lib/app
+ExecStart=/usr/bin/node /usr/lib/app/server.js
+Environment=NODE_ENV=production
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

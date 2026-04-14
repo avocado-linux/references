@@ -1,0 +1,135 @@
+cli_requirement: ">=0.26.0"
+
+default_target: "qemux86-64"
+
+# Add additional supported targets or use "*" for all targets
+supported_targets: "*"
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-ext-webkit
+      - avocado-bsp-{{ avocado.target }}
+      - config
+      - app
+    packages:
+      avocado-runtime: "*"
+
+    # QEMU targets: no display hardware, drop webkit/cog
+    qemux86-64:
+      extensions:
+        - avocado-ext-dev
+        - avocado-ext-sshd-dev
+        - avocado-bsp-{{ avocado.target }}
+        - config
+        - app
+    qemuarm64:
+      extensions:
+        - avocado-ext-dev
+        - avocado-ext-sshd-dev
+        - avocado-bsp-{{ avocado.target }}
+        - config
+        - app
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-webkit:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target }}:
+    source:
+      type: package
+      version: "*"
+
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Node.js device dashboard"
+    overlay: app/overlay
+    packages:
+      app:
+        compile: app
+        install: app-install.sh
+      nodejs: "*"
+      curl: "*"
+    enable_services:
+      - app.service
+    on_merge:
+      - systemctl restart --no-block app.service
+      - sh -c 'command -v cog >/dev/null 2>&1 && systemctl restart --no-block cog.service || true'
+    on_unmerge:
+      - systemctl stop app.service
+      - sh -c 'systemctl stop cog.service 2>/dev/null || true'
+
+    sdk:
+      packages:
+        nativesdk-nodejs: "*"
+        nativesdk-nodejs-npm: "*"
+        nativesdk-ca-certificates: "*"
+
+  # Generated default config extension
+  # Use or modify this to configure "real" user accounts (passwd, shadow, group)
+  # or configure other system services
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+
+    # NOT FOR PRODUCTION: Set root password to empty string
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    app:
+      compile: app-compile.sh
+      clean: app-clean.sh
+
+  packages:
+    avocado-sdk-toolchain: "*"
+
