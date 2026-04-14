@@ -1,0 +1,13 @@
+[Unit]
+Description=Syslog Dashboard
+After=systemd-journald.service
+Wants=systemd-journald.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/syslog-dashboard
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
