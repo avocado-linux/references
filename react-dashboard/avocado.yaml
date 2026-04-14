@@ -1,0 +1,108 @@
+supported_targets: '*'
+
+default_target: "qemux86-64"
+
+distro:
+  release: 2024
+  channel: edge
+
+runtimes:
+  dev:
+    packages:
+      avocado-runtime: '*'
+    extensions:
+      - example-reactjs
+      - config-dev
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-ext-webkit
+      - avocado-bsp-{{ avocado.target }}
+
+    # QEMU targets: no display hardware, drop webkit/cog
+    qemux86-64:
+      extensions:
+        - example-reactjs
+        - config-dev
+        - avocado-ext-dev
+        - avocado-ext-sshd-dev
+        - avocado-bsp-{{ avocado.target }}
+    qemuarm64:
+      extensions:
+        - example-reactjs
+        - config-dev
+        - avocado-ext-dev
+        - avocado-ext-sshd-dev
+        - avocado-bsp-{{ avocado.target }}
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: '*'
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: '*'
+
+  avocado-ext-webkit:
+    source:
+      type: package
+      version: '*'
+
+  avocado-bsp-{{ avocado.target }}:
+    source:
+      type: package
+      version: '*'
+
+  config-dev:
+    version: 0.1.0
+
+    users:
+      root:
+        password: ''
+
+  example-reactjs:
+    version: 0.1.0
+
+    overlay: overlay
+
+    enable_services:
+      - ref-reactjs.service
+
+    on_merge:
+      - systemctl start --no-block ref-reactjs.service
+      - sh -c 'command -v cog >/dev/null 2>&1 && systemctl restart --no-block cog.service || true'
+
+    on_unmerge:
+      - systemctl stop ref-reactjs.service
+      - sh -c 'systemctl stop cog.service 2>/dev/null || true'
+
+    packages:
+      example-reactjs-app:
+        compile: example-reactjs-app
+        install: reactjs-install.sh
+      nodejs: '*'
+
+    sdk:
+      packages:
+        nativesdk-nodejs: '*'
+        nativesdk-nodejs-npm: '*'
+        nativesdk-ca-certificates: '*'
+
+sdk:
+  image: docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    example-reactjs-app:
+      compile: reactjs-compile.sh
+      clean: reactjs-clean.sh
+
+  packages:
+    avocado-sdk-toolchain: '*'

@@ -1,0 +1,5 @@
+ref-reactjs/node_modules/
+ref-reactjs/dist/
+.avocado/
+.avocado-state
+.DS_Store
