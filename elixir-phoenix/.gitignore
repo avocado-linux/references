@@ -1,0 +1,6 @@
+ref-elixir/_build/
+ref-elixir/deps/
+ref-elixir/priv/static/assets/
+.avocado/
+.avocado-state
+.DS_Store

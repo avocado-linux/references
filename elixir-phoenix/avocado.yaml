@@ -1,0 +1,162 @@
+supported_targets: '*'
+
+distro:
+  release: 2024
+  channel: edge
+
+runtimes:
+  dev:
+    packages:
+      avocado-runtime: '*'
+    extensions:
+      - example-elixir
+      - config-dev
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-ext-webkit
+      - avocado-bsp-{{ avocado.target }}
+
+    # QEMU targets: no display hardware, drop webkit/cog
+    qemux86-64:
+      extensions:
+        - example-elixir
+        - config-dev
+        - avocado-ext-dev
+        - avocado-ext-sshd-dev
+        - avocado-bsp-{{ avocado.target }}
+    qemuarm64:
+      extensions:
+        - example-elixir
+        - config-dev
+        - avocado-ext-dev
+        - avocado-ext-sshd-dev
+        - avocado-bsp-{{ avocado.target }}
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: '*'
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: '*'
+
+  avocado-ext-webkit:
+    source:
+      type: package
+      version: '*'
+
+  avocado-bsp-{{ avocado.target }}:
+    source:
+      type: package
+      version: '*'
+
+  config-dev:
+    version: 0.1.0
+
+    users:
+      root:
+        password: ''
+
+  example-elixir:
+    version: 0.1.0
+
+    overlay: overlay
+
+    enable_services:
+      - ref-elixir.service
+
+    on_merge:
+      - systemctl restart --no-block ref-elixir.service
+      - sh -c 'command -v cog >/dev/null 2>&1 && systemctl restart --no-block cog.service || true'
+
+    on_unmerge:
+      - systemctl stop ref-elixir.service
+      - sh -c 'systemctl stop cog.service 2>/dev/null || true'
+
+    packages:
+      example-elixir-app:
+        compile: example-elixir-app
+        install: elixir-install.sh
+      erlang: '*'
+      erlang-erts: '*'
+      erlang-epmd: '*'
+      erlang-kernel: '*'
+      erlang-stdlib: '*'
+      erlang-compiler: '*'
+      erlang-crypto: '*'
+      erlang-ssl: '*'
+      erlang-public-key: '*'
+      erlang-asn1: '*'
+      erlang-inets: '*'
+      erlang-runtime-tools: '*'
+      erlang-sasl: '*'
+      erlang-tools: '*'
+      erlang-xmerl: '*'
+      erlang-parsetools: '*'
+      erlang-syntax-tools: '*'
+      erlang-mnesia: '*'
+      erlang-eunit: '*'
+
+    sdk:
+      packages:
+        nativesdk-ca-certificates: '*'
+        nativesdk-elixir: '*'
+        nativesdk-elixir-eex: '*'
+        nativesdk-elixir-ex-unit: '*'
+        nativesdk-elixir-mix: '*'
+        nativesdk-erlang: '*'
+        nativesdk-erlang-asn1: '*'
+        nativesdk-erlang-crypto: '*'
+        nativesdk-erlang-dev: '*'
+        nativesdk-erlang-inets: '*'
+        nativesdk-erlang-parsetools: '*'
+        nativesdk-erlang-public-key: '*'
+        nativesdk-erlang-public-key-dev: '*'
+        nativesdk-erlang-runtime-tools: '*'
+        nativesdk-erlang-ssl: '*'
+        nativesdk-erlang-stdlib: '*'
+        nativesdk-erlang-xmerl: '*'
+        nativesdk-erlang-xmerl-dev: '*'
+        nativesdk-git: '*'
+        nativesdk-nodejs: '*'
+        nativesdk-rebar3: '*'
+
+
+  avocado-ext-connect-config:
+    types:
+      - confext
+    version: "0.1.0"
+    overlay: overlay
+
+
+  avocado-ext-connect:
+    source:
+      type: package
+      version: "*"
+
+
+  avocado-ext-tunnels:
+    source:
+      type: package
+      version: "*"
+
+sdk:
+  image: docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    example-elixir-app:
+      compile: elixir-compile.sh
+      clean: elixir-clean.sh
+      packages:
+        erlang-erts: '*'
+
+  packages:
+    avocado-sdk-toolchain: '*'

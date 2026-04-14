@@ -1,0 +1,21 @@
+[Unit]
+Description=Ref Elixir Phoenix Application
+After=network.target
+Wants=network.target
+
+[Service]
+WorkingDirectory=/usr/lib/ref-elixir
+ExecStart=/usr/lib/ref-elixir/bin/ref_elixir start
+Environment=PHX_SERVER=true
+# Optional: set PHX_HOST to the device's reachable hostname (e.g. avocado.local)
+# to allow LiveView connections from a browser on the LAN via that hostname.
+# The cog browser on-device always reaches the app via 127.0.0.1, which is
+# already allowed by the endpoint's :check_origin list. The listener binds
+# on all interfaces regardless (see http[ip] in config/runtime.exs).
+#Environment=PHX_HOST=avocado.local
+Restart=always
+RestartSec=5
+SyslogIdentifier=ref-elixir
+
+[Install]
+WantedBy=multi-user.target
