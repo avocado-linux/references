@@ -1,0 +1,4 @@
+.avocado/
+.avocado-state
+.DS_Store
+ref-rust/target/
