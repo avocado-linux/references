@@ -1,0 +1,15 @@
+[Unit]
+Description=Whisper Speech-to-Text
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/app.py
+Restart=on-failure
+RestartSec=10
+# Give the model time to load before systemd considers it stuck
+TimeoutStartSec=120
+
+[Install]
+WantedBy=multi-user.target
