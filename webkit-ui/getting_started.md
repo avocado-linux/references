@@ -101,7 +101,7 @@ Edit `avocado.yaml` to customize the runtime:
       - avocado-ext-sshd-dev
       - avocado-ext-webkit         # the Cog browser
       - avocado-ext-docker         # add Docker support
-      - avocado-bsp-{{ avocado.target }}
+      - avocado-bsp-{{ avocado.target.board }}
 ```
 
 ### Rebuild after changes

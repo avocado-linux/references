@@ -14,7 +14,7 @@ runtimes:
       - avocado-ext-dev
       - avocado-ext-sshd-dev
       - avocado-ext-webkit
-      - avocado-bsp-{{ avocado.target }}
+      - avocado-bsp-{{ avocado.target.board }}
 
     # QEMU targets: no display hardware, drop webkit/cog
     qemux86-64:
@@ -23,14 +23,14 @@ runtimes:
         - config-dev
         - avocado-ext-dev
         - avocado-ext-sshd-dev
-        - avocado-bsp-{{ avocado.target }}
+        - avocado-bsp-{{ avocado.target.board }}
     qemuarm64:
       extensions:
         - example-elixir
         - config-dev
         - avocado-ext-dev
         - avocado-ext-sshd-dev
-        - avocado-bsp-{{ avocado.target }}
+        - avocado-bsp-{{ avocado.target.board }}
 extensions:
   avocado-ext-dev:
     source:
@@ -47,7 +47,7 @@ extensions:
       type: package
       version: '*'
 
-  avocado-bsp-{{ avocado.target }}:
+  avocado-bsp-{{ avocado.target.board }}:
     source:
       type: package
       version: '*'

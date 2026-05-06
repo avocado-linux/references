@@ -133,7 +133,7 @@ Add pre-built extensions from the package feed:
       - avocado-ext-sshd-dev
       - avocado-ext-docker        # add Docker support
       - avocado-ext-cockpit       # add web-based management UI
-      - avocado-bsp-{{ avocado.target }}
+      - avocado-bsp-{{ avocado.target.board }}
 ```
 
 ### Rebuild after changes
