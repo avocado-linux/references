@@ -142,7 +142,7 @@ Edit `avocado.yaml` to add or remove extensions:
       - avocado-ext-dev
       - avocado-ext-sshd-dev
       - avocado-ext-cli
-      - avocado-bsp-{{ avocado.target }}
+      - avocado-bsp-{{ avocado.target.board }}
 ```
 
 ### Rebuild after changes

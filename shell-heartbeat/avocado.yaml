@@ -11,7 +11,7 @@ runtimes:
     extensions:
       - avocado-ext-dev
       - avocado-ext-sshd-dev
-      - avocado-bsp-{{ avocado.target }}
+      - avocado-bsp-{{ avocado.target.board }}
       - config
       - app
       - heartbeat
@@ -29,7 +29,7 @@ extensions:
       type: package
       version: "*"
 
-  avocado-bsp-{{ avocado.target }}:
+  avocado-bsp-{{ avocado.target.board }}:
     source:
       type: package
       version: "*"

@@ -20,7 +20,7 @@ runtimes:
       - avocado-ext-dev
       - avocado-ext-sshd-dev
       - avocado-ext-cli
-      - avocado-bsp-{{ avocado.target }}
+      - avocado-bsp-{{ avocado.target.board }}
 
 extensions:
   avocado-ext-cockpit:
@@ -43,7 +43,7 @@ extensions:
       type: package
       version: '*'
 
-  avocado-bsp-{{ avocado.target }}:
+  avocado-bsp-{{ avocado.target.board }}:
     source:
       type: package
       version: '*'

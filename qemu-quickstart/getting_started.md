@@ -86,7 +86,7 @@ runtimes:
     extensions:
       - avocado-ext-dev
       - avocado-ext-sshd-dev
-      - avocado-bsp-{{ avocado.target }}
+      - avocado-bsp-{{ avocado.target.board }}
       - avocado-ext-connect
       - avocado-ext-tunnels
       - avocado-ext-docker        # add Docker support
