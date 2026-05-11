@@ -1,0 +1,260 @@
+cli_requirement: ">=0.26.0"
+
+default_target: jetson-orin-nano-devkit
+supported_targets:
+  - jetson-orin-nano-devkit
+  - jetson-agx-orin-devkit
+  - icam-540
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+# Pin the runtime kernel to the 6.6 line. Jetson family ships a multi-kernel
+# feed (linux-yocto 6.6 + linux-jammy-nvidia-tegra 5.15); without a pin, dnf
+# tie-breaks on NVR. Explicit so kernel-version-critical modules in the
+# auto-appended packagegroup-avocado-{rootfs,initramfs}-modules-${KERNEL_VERSION}
+# resolve to this kernel, not the alt mc.
+kernel:
+  version: "6.6*"
+
+# cpio.gz initramfs is the format the Tegra UEFI launcher reads.
+initramfs:
+  filesystem: cpio.gz
+
+##
+## Runtimes
+##
+
+runtimes:
+  # Development runtime: SDK toolchain on host, dev shell + ssh on device,
+  # full GPU userspace, vectorAdd smoke test, NVIDIA container runtime,
+  # and the connect agent for cloud-side telemetry. Test containers
+  # (l4t-pytorch, l4t-jetpack, etc.) are pulled on-device at runtime
+  # rather than baked into a sysext — see getting_started.md.
+  dev:
+    packages:
+      avocado-runtime: "*"
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-ext-connect
+      - avocado-bsp-{{ avocado.target.board }}
+      - config-dev
+      - gpu-toolbox
+      - gpu-test
+      - nvidia-docker
+
+  # Minimal runtime: just the GPU stack + nvidia-docker + connect. No dev
+  # shell, no smoke test, no cached images. Use this as the starting point
+  # for a customer-style image.
+  prod:
+    packages:
+      avocado-runtime: "*"
+    extensions:
+      - avocado-ext-connect
+      - avocado-bsp-{{ avocado.target.board }}
+      - config-dev
+      - gpu-toolbox
+      - nvidia-docker
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  # Cloud connect agent. Ships the device-side TLS bootstrap (cert
+  # provisioning, mTLS to the Peridio control plane) plus the connect
+  # daemon. Pair with the top-level `connect:` block below to bind a
+  # device identity at provision time.
+  avocado-ext-connect:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  config-dev:
+    types:
+      - confext
+    version: "0.1.0"
+    # NOT FOR PRODUCTION: empty root password for development access.
+    users:
+      root:
+        password: ""
+
+  ##
+  ## gpu-toolbox — base GPU userspace + CUDA / cuDNN / TensorRT / DeepStream
+  ## plus the L4T runtime services (nvstartup, nvphs, nvsciipc) needed before
+  ## libcuda's NvSciIpc handshake will succeed and cuInit() can return 0.
+  ##
+  gpu-toolbox:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "L4T CUDA stack + diagnostic tools for exercising the Jetson iGPU"
+    packages:
+      # Sweeps in deepstream-7.1, tegra-cuda-utils, tegra-libraries-cuda,
+      # tegra-libraries-multimedia[-ds], nvgstapps, tegra-tools (tegrastats,
+      # jetson_clocks), tegra-nvstartup, tegra-nvphs, tegra-nvsciipc,
+      # tegra-nvpower, gst-nv plugins. The L4T runtime services are
+      # required: without them libcuda's NvSciIpc handshake fails and
+      # cuInit() returns CUDA_ERROR_NOT_SUPPORTED (801).
+      packagegroup-avocado-tegra-extra: "*"
+
+      # Deep-learning libraries layered on top of the tegra packagegroup.
+      cudnn: "*"
+      tensorrt-core: "*"
+      tensorrt-plugins-prebuilt: "*"
+
+      # Python + numpy for ad-hoc CUDA / TensorRT scripts.
+      python3: "*"
+      python3-numpy: "*"
+
+      # Hardware enumeration / debug.
+      v4l-utils: "*"
+      i2c-tools: "*"
+      usbutils: "*"
+      pciutils: "*"
+
+      # Process / syscall / fd inspection. strace was sorely missed during
+      # CUDA bring-up debugging; ship it here so it's always available on
+      # a dev image.
+      strace: "*"
+      lsof: "*"
+
+      # General-purpose dev shell.
+      htop: "*"
+      tmux: "*"
+      vim: "*"
+      jq: "*"
+      curl: "*"
+      file: "*"
+
+  ##
+  ## gpu-test — vectorAdd CUDA smoke test, cross-compiled in the SDK and
+  ## installed at /usr/local/bin/vectorAdd. Use it to validate the iGPU
+  ## end-to-end without depending on PyTorch or any container.
+  ##
+  gpu-test:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "vectorAdd CUDA smoke test binary at /usr/local/bin/vectorAdd"
+    description: |
+      Runs a tight loop of vectorAdd kernel launches (default 1000 iters
+      over 16M float elements) and reports throughput. While running,
+      `tegrastats` should show GR3D_FREQ jump from ~0% to near 100%.
+      Exits 0 on PASS, 1 on FAIL (sanity check on the result vector).
+
+    packages:
+      gpu-test:
+        compile: gpu-test
+        install: gpu-test/install.sh
+
+  ##
+  ## nvidia-docker — Docker daemon + NVIDIA container runtime + the iptables
+  ## kernel modules Docker needs for its bridge networking. The
+  ## nvidia-container-setup.service stages CSV mount specs from
+  ## /etc/nvidia-container-runtime/host-files-for-container.d/*.csv at boot
+  ## so containers launched with `--runtime nvidia` get the host's libcuda /
+  ## libnvrm_* / nvgpu device nodes mapped in.
+  ##
+  nvidia-docker:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "Docker + nvidia-container-runtime + iptables kmods"
+
+    enable_services:
+      - docker.service
+      - nvidia-container-setup.service
+
+    on_merge:
+      - systemctl restart --no-block nvidia-container-setup.service
+      - systemctl restart --no-block docker.service
+
+    on_unmerge:
+      - systemctl stop docker.service
+
+    packages:
+      nvidia-docker: "*"
+      ca-certificates: "*"
+      iptables-modules: "*"
+
+      # Tegra firmware required by nvidia-docker's container-setup hook
+      # when staging device passthrough specs at boot.
+      tegra-firmware-tegra234: "*"
+
+      # netfilter / iptables kernel modules Docker needs for its default
+      # bridge network. Without these, `docker run` fails with iptables
+      # errors at network creation time.
+      kernel-module-ip-tables: "*"
+      kernel-module-ip6table-filter: "*"
+      kernel-module-ip6table-mangle: "*"
+      kernel-module-ip6table-nat: "*"
+      kernel-module-iptable-filter: "*"
+      kernel-module-iptable-mangle: "*"
+      kernel-module-iptable-nat: "*"
+      kernel-module-iptable-raw: "*"
+      kernel-module-nf-conntrack-netlink: "*"
+      kernel-module-nf-nat: "*"
+      kernel-module-xt-addrtype: "*"
+      kernel-module-xt-conntrack: "*"
+      kernel-module-xt-masquerade: "*"
+
+##
+## SDK
+##
+
+sdk:
+  image: docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  # Cross-compile the vectorAdd CUDA binary in the SDK toolchain.
+  # nativesdk-cuda-nvcc gives the host-side nvcc; cuda-cudart-dev provides
+  # the target-side cuda_runtime.h + linker stubs.
+  compile:
+    gpu-test:
+      compile: gpu-test/build.sh
+      clean: gpu-test/clean.sh
+      packages:
+        cuda-cudart-dev: "*"
+
+  packages:
+    avocado-sdk-toolchain: "*"
+    nativesdk-cuda-nvcc: "*"
+
+##
+## Cloud connect (Peridio)
+##
+## Fill in real values for org / project / server_key from your Peridio
+## account before `avocado provision`. Leaving the defaults bound below
+## still builds; the agent just won't authenticate against the cloud.
+##
+connect:
+  org: "{{ env.PERIDIO_ORG_ID | default('00000000-0000-0000-0000-000000000000') }}"
+  project: "{{ env.PERIDIO_PROJECT_ID | default('00000000-0000-0000-0000-000000000000') }}"
+  server_key: "{{ env.PERIDIO_SERVER_KEY | default('replace-with-your-server-key') }}"

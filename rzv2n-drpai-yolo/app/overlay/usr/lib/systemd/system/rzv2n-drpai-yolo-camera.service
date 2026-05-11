@@ -1,0 +1,27 @@
+[Unit]
+Description=RZ/V2N IMX678 camera media-pipeline init
+After=systemd-udev-settle.service
+Before=rzv2n-drpai-yolo.service
+RequiresMountsFor=/dev /sys
+ConditionPathExists=/dev/media0
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Use our overlay's busybox-compatible copy of the IMX678 init. SolidRun's
+# v4l2-init-scripts recipe installs to /root/ which doesn't survive into
+# avocado's read-only rootfs at a callable path, and the upstream script
+# uses `head -1` which busybox rejects.
+#
+# 3840x2160 only: the SolidRun IMX678 driver doesn't implement 1080p binning,
+# so the sensor source pad stays at 4K even when media-ctl is told otherwise.
+# Using 1080p here causes a sensor-vs-CSI/CRU resolution mismatch and v4l2
+# STREAMON returns EPIPE. The downstream CPU letterbox in main.cpp resamples
+# 4K → 416x416 for YOLOv3 inference, so capture resolution doesn't affect
+# detection quality.
+ExecStart=/usr/local/bin/v4l2n-init-imx678.sh 3840x2160
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

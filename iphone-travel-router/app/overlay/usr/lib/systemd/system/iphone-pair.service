@@ -1,0 +1,10 @@
+[Unit]
+Description=Pair attached iPhone via libimobiledevice
+After=usbmuxd.service
+Wants=usbmuxd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/iphone-pair.sh
+StandardOutput=journal
+StandardError=journal

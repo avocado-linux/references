@@ -1,0 +1,81 @@
+{
+  "runtime": {
+    "platform": "avocado-rzv2n-sr-som",
+    "architecture": "arm64",
+    "provision_default": "sd",
+    "update_strategy": "gpt-ab"
+  },
+  "provision": {
+    "envs": {
+      "device_info": {
+        "AVOCADO_DEVICE_CERT": "${AVOCADO_DEVICE_CERT}",
+        "AVOCADO_DEVICE_KEY": "${AVOCADO_DEVICE_KEY}",
+        "AVOCADO_DEVICE_ID": "${AVOCADO_DEVICE_ID}"
+      },
+      "cmdline": {
+        "AVOCADO_CMDLINE_EXTRA": "${AVOCADO_CMDLINE_EXTRA}"
+      }
+    },
+    "files": [
+      "build-disk-image.sh"
+    ],
+    "profiles": {
+      "serial": {
+        "script": "stone-provision-serial.sh",
+        "envs": ["device_info"],
+        "requires": ["usb"]
+      },
+      "emmc": {
+        "script": "stone-provision-emmc.sh",
+        "envs": ["device_info", "cmdline"],
+        "requires": ["usb"]
+      },
+      "sd": {
+        "script": "stone-provision-sd.sh",
+        "envs": ["device_info", "cmdline"],
+        "requires": ["usb"]
+      }
+    }
+  },
+  "storage_devices": {
+    "rootdisk": {
+      "out": "avocado-rzv2n-sr-som-rootdisk.tar.gz",
+      "devpath": "/dev/mmcblk0",
+      "block_size": 512,
+      "images": {
+        "bl2_spi": "bl2_bp_spi-avocado-rzv2n-sr-som.bin",
+        "fip": "fip-avocado-rzv2n-sr-som.bin",
+        "flash_writer": "Flash_Writer_SCIF_RZV2N_SR_SOM_8GB_LPDDR4X.mot",
+        "boot": {
+          "out": "boot.img",
+          "size": 256,
+          "size_unit": "mebibytes",
+          "build_args": {
+            "type": "fat",
+            "variant": "FAT32",
+            "label": "BOOT",
+            "files": [
+              { "in": "Image", "out": "Image" },
+              { "in": "r9a09g056n48-hummingboard-iiot.dtb", "out": "r9a09g056n48-hummingboard-iiot.dtb" },
+              { "in": "rzv2n-hummingboard-iiot-panel-dsi-WJ70N3TYJHMNG0.dtbo", "out": "rzv2n-hummingboard-iiot-panel-dsi-WJ70N3TYJHMNG0.dtbo" },
+              { "in": "rzv2n-hummingboard-iiot-csi-camera-imx678.dtbo", "out": "rzv2n-hummingboard-iiot-csi-camera-imx678.dtbo" },
+              { "in": "avocado-image-initramfs-rzv2n-sr-som.cpio.zst", "out": "avocado-image-initramfs-rzv2n-sr-som.cpio.zst" },
+              { "in": "extlinux.conf", "out": "extlinux/extlinux.conf" }
+            ]
+          }
+        },
+        "rootfs": "avocado-image-rootfs-rzv2n-sr-som.erofs-lz4",
+        "var": "avocado-image-var-rzv2n-sr-som.btrfs",
+        "initramfs": "avocado-image-initramfs-rzv2n-sr-som.cpio.zst",
+        "kernel": "Image"
+      },
+      "partitions": [
+        { "name": "boot-a", "image": "boot", "partition_type": "EF00", "partition_uuid": "7569c01d-94e5-4fcb-ac9f-2ec8a43225c9", "offset": 1, "offset_unit": "mebibytes", "size": 256, "size_unit": "mebibytes" },
+        { "name": "boot-b", "partition_type": "EF00", "partition_uuid": "7ba34e50-0b05-4323-8283-9af74af17bc1", "size": 256, "size_unit": "mebibytes" },
+        { "name": "rootfs-a", "image": "rootfs", "partition_type": "8305", "partition_uuid": "bb6c0eca-50a4-4b9d-80d5-6f6ec33bdf66", "size": 128, "size_unit": "mebibytes" },
+        { "name": "rootfs-b", "partition_type": "8305", "partition_uuid": "02969f9b-d2c1-45f7-a90a-c36da86d576e", "size": 128, "size_unit": "mebibytes" },
+        { "name": "var", "image": "var", "partition_type": "8300", "partition_uuid": "4d21b016-b534-45c2-a9fb-5c16e091fd2d", "size": 1024, "size_unit": "mebibytes", "expand": "true" }
+      ]
+    }
+  }
+}

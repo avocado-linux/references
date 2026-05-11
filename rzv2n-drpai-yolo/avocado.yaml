@@ -1,0 +1,200 @@
+cli_requirement: ">=0.26.0"
+
+default_target: "rzv2n-sr-som"
+
+supported_targets:
+  - rzv2n-sr-som
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    stone_manifest: stone-rzv2n-sr-som.json
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - config
+      - app
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "YOLOv3 object detection on RZ/V2N DRP-AI3 with IMX678 camera and Wayland display"
+    overlay: app/overlay
+    packages:
+      app:
+        compile: app
+        install: app-install.sh
+
+      # DRP-AI3 inference runtime (libtvm_runtime.so).
+      # Self-contained: Mera2/DRP/ACL all baked in for V2N.
+      lib-tvm: "*"
+
+      # DRP-AI UAPI header (linux/drpai.h) — for /dev/drpai0.
+      drpai: "*"
+
+      # Renesas DMA memory manager (DRP-AI input/output buffer allocation).
+      # The mmngr-user-module / mmngrbuf-user-module recipes produce packages
+      # named after their SONAMEs (Yocto auto-rename): libmmngr1 ships
+      # libmmngr.so.1, libmmngrbuf1 ships libmmngrbuf.so.1, both RDEPENDS on
+      # the matching kernel-module-* — so the kernel modules come along
+      # automatically without triggering Avocado's multi-kernel suffix logic.
+      libmmngr1: "*"
+      libmmngrbuf1: "*"
+
+      # Camera pipeline: IMX678 4K MIPI CSI-2 → CRU → /dev/video0 (RGGB Bayer).
+      v4l-utils: "*"
+      media-ctl: "*"
+      v4l2-init-scripts: "*"
+
+      # GStreamer (file/camera capture + Wayland display).
+      gstreamer1.0: "*"
+      gstreamer1.0-plugins-base: "*"
+      gstreamer1.0-plugins-base-app: "*"
+      gstreamer1.0-plugins-base-videoconvertscale: "*"
+      gstreamer1.0-plugins-base-videorate: "*"
+      gstreamer1.0-plugins-good: "*"
+      gstreamer1.0-plugins-good-isomp4: "*"           # qtdemux for MP4 container
+      gstreamer1.0-plugins-bad: "*"
+      gstreamer1.0-plugins-bad-bayer: "*"             # camera path (bayer→rgb)
+      gstreamer1.0-plugins-bad-waylandsink: "*"
+      gstreamer1.0-plugins-bad-videoparsersbad: "*"   # h264parse (Yocto package split: -bad-videoparsersbad, not -videoparsers)
+      # Software H.264/H.265 + AAC decoders via libav. RZ/V2N has a DRP-codec
+      # but meta-rz-codecs isn't pulled in here, so decode runs on CPU.
+      # Quad cortex-A55 sustains 1080p H.264 at 30fps comfortably.
+      gstreamer1.0-libav: "*"
+
+      # OpenCV for image preprocessing + bounding box drawing.
+      opencv: "*"
+
+      # Weston compositor (target for waylandsink).
+      weston: "*"
+      weston-init: "*"
+
+    # Out-of-tree mmngr/mmngrbuf modules don't auto-load: their
+    # /usr/lib/modules-load.d/*.conf lives in this extension's overlay,
+    # which the sysext mechanism merges *after* systemd-modules-load.service
+    # has already run. modprobe here triggers loading at extension-merge
+    # time so /dev/rgnmm and /dev/rgnmmbuf exist before the app starts.
+    modprobe:
+      - mmngr
+      - mmngrbuf
+
+    # Only the main app service starts by default. The camera-init unit
+    # ships in the overlay for users who want to flip to the camera flow
+    # but isn't enabled here while the rzg2l-cru driver bug is open.
+    enable_services:
+      - rzv2n-drpai-yolo.service
+    on_merge:
+      - systemctl daemon-reload
+      - systemctl restart --no-block weston
+      - systemctl start --no-block rzv2n-drpai-yolo.service
+    on_unmerge:
+      - systemctl stop rzv2n-drpai-yolo.service
+
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+
+    # NOT FOR PRODUCTION: Set root password to empty string
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  # Pass host /dev and /sys through so `avocado provision --profile sd`
+  # can resolve AVOCADO_SD_DEVICE (the script is_block check runs inside
+  # this container).
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    app:
+      compile: app-compile.sh
+      clean: app-clean.sh
+      # Target-side dev packages installed into the SDK target sysroot so
+      # CMake/pkg-config can find headers, .pc files, and .so symlinks during
+      # cross-compile. Runtime packages listed in extensions.app.packages
+      # don't auto-pull -dev versions into the SDK; this block does that.
+      packages:
+        # GStreamer headers + .pc files (gstreamer-1.0, gstreamer-app-1.0,
+        # gstreamer-video-1.0 — used by pkg_check_modules in CMakeLists).
+        gstreamer1.0-dev: "*"
+        gstreamer1.0-plugins-base-dev: "*"
+
+        # OpenCV headers (we use core, imgproc, imgcodecs, dnn::NMSBoxes).
+        libopencv-core-dev: "*"
+        libopencv-imgproc-dev: "*"
+        libopencv-imgcodecs-dev: "*"
+        libopencv-dnn-dev: "*"
+        # OpenCVConfig.cmake unconditionally imports targets for every
+        # contrib module (correspondence, ippiw, etc.) regardless of the
+        # COMPONENTS we ask for. The .a files for those live in
+        # opencv-staticdev — without it find_package(OpenCV) errors out.
+        opencv-staticdev: "*"
+
+        # Renesas DRP-AI3 inference runtime + UAPI header.
+        # lib-tvm has no -dev split (the .so symlink ships in the main pkg
+        # via INSANE_SKIP=dev-so). drpai is a header-only recipe.
+        lib-tvm: "*"
+        drpai: "*"
+
+        # Renesas memory manager userspace libs. Packages are named after
+        # SONAME (Yocto auto-rename): libmmngr-dev / libmmngrbuf-dev contain
+        # the headers + .so linker symlinks; libmmngr1 / libmmngrbuf1 contain
+        # the .so.1 runtime libraries.
+        libmmngr-dev: "*"
+        libmmngrbuf-dev: "*"
+        libmmngr1: "*"
+        libmmngrbuf1: "*"
+
+  packages:
+    avocado-sdk-toolchain: "*"
+    nativesdk-cmake: "*"
+    nativesdk-pkgconfig: "*"
+    nativesdk-git: "*"

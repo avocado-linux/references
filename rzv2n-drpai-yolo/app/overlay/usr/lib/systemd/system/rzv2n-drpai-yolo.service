@@ -1,0 +1,42 @@
+[Unit]
+Description=RZ/V2N DRP-AI3 YOLOv3 object detection demo
+After=weston.service
+PartOf=weston.service
+ConditionPathExists=/dev/drpai0
+# Camera path is currently broken (rzg2l-cru / IMX678 format mismatch).
+# The default flow is video-file-based — see VIDEO_PATH below. Camera mode
+# is opt-in via Environment overrides; enable the camera-init unit then.
+# Wants=rzv2n-drpai-yolo-camera.service
+# ConditionPathExists=/dev/video0
+
+[Service]
+Type=simple
+# DRP-AI access requires CAP_SYS_RAWIO (mmap of /dev/drpai0); run as root.
+User=root
+WorkingDirectory=/usr/lib/rzv2n-drpai-yolo
+
+# Wait for Weston's wayland socket. UID 970 matches the weston-init recipe
+# on this BSP (see /etc/passwd: weston:x:970:970:...).
+ExecStartPre=/bin/sh -c 'while [ ! -S /run/user/970/wayland-1 ]; do sleep 0.5; done; exec true'
+
+Environment=XDG_RUNTIME_DIR=/run/user/970
+Environment=WAYLAND_DISPLAY=wayland-1
+Environment=GST_DEBUG=2
+# Default to looping video file (camera path is broken — see main.cpp).
+# Set VIDEO_PATH= (empty) + CAMERA_DEVICE=/dev/video0 to switch.
+Environment=VIDEO_PATH=/usr/lib/rzv2n-drpai-yolo/sample.mp4
+Environment=CAMERA_DEVICE=/dev/video0
+Environment=WIDTH=1920
+Environment=HEIGHT=1080
+Environment=FRAMERATE=30
+Environment=MODEL_DIR=/usr/lib/rzv2n-drpai-yolo/model/yolov3
+Environment=LABELS_PATH=/usr/lib/rzv2n-drpai-yolo/labels.txt
+Environment=CONFIDENCE_THRESHOLD=0.5
+Environment=NMS_THRESHOLD=0.5
+
+ExecStart=/usr/local/bin/rzv2n-drpai-yolo
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target
