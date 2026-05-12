@@ -1,0 +1,294 @@
+cli_requirement: ">=0.26.0"
+
+default_target: grinn-astra-1680-sbc
+supported_targets:
+  - grinn-astra-1680-sbc
+
+distro:
+  release: 2024
+  channel: edge
+  repo:
+    url: http://localhost:8080
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target }}
+      - config
+      - weston
+    packages:
+      avocado-runtime: "*"
+
+  dev-deepx:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target }}
+      - config
+      - weston
+      - deepx-driver
+      - deepx-rt
+      - deepx-models
+      - deepx-qt-example
+    packages:
+      avocado-runtime: "*"
+
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target }}:
+    source:
+      type: package
+      version: "*"
+
+  weston:
+    packages:
+      weston: "*"
+      kernel-module-syna-drm: "*"
+      kernel-module-pvrsrvkm: "*"
+      synasdk-gpu-pvr: "*"
+      mesa-megadriver: "*"
+    version: "1.0.1"
+    on_merge:
+      - systemctl daemon-reload
+      - systemctl restart --no-block weston
+
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+    users:
+      root:
+        password: ""
+
+  deepx-driver:
+    version: 2.4.1
+    release: r0
+    summary: DeepX NPU Linux kernel driver
+    description: Kernel modules for the DeepX AI accelerator (NPU) PCIe device
+    license: GPL-2.0
+    url: https://github.com/DEEPX-AI/dx_rt_npu_linux_driver
+    vendor: Avocado Linux <info@avocadolinux.org>
+
+    modprobe:
+      - dx_dma
+      - dxrt_driver
+
+    packages:
+      dx-driver-modules:
+        compile: dx-driver-build
+        install: files/dx-driver-install.sh
+
+    sdk:
+      packages:
+        nativesdk-binutils: '*'
+        nativesdk-gcc: '*'
+        nativesdk-glibc-dev: '*'
+        nativesdk-libgcc-dev: '*'
+        nativesdk-kmod: '*'
+        nativesdk-make: '*'
+        nativesdk-git: '*'
+        nativesdk-flex: '*'
+        nativesdk-bison: '*'
+        nativesdk-bc: '*'
+        nativesdk-openssl-dev: '*'
+        nativesdk-elfutils-dev: '*'
+        packagegroup-cross-canadian-avocado-{{ avocado.target }}: '*'
+
+  deepx-rt:
+    version: 3.3.0
+    release: r0
+    summary: DeepX Runtime (DXRT) for NPU inference
+    description: DXRT inference runtime library and daemon for the DeepX AI accelerator (NPU)
+    license: LicenseRef-DEEPX-Proprietary
+    url: https://github.com/DEEPX-AI/dx_rt
+    vendor: Avocado Linux <info@avocadolinux.org>
+
+    enable_services:
+      - dxrt.service
+
+    on_merge:
+      - systemctl start --no-block dxrt.service
+
+    on_unmerge:
+      - systemctl stop dxrt.service
+
+    packages:
+      dx-rt:
+        compile: dx-rt-build
+        install: files/dx-rt-install.sh
+
+    sdk:
+      packages:
+        nativesdk-binutils: '*'
+        nativesdk-gcc: '*'
+        nativesdk-glibc-dev: '*'
+        nativesdk-libgcc-dev: '*'
+        nativesdk-cmake: '*'
+        nativesdk-ninja: '*'
+        nativesdk-git: '*'
+        nativesdk-python3: '*'
+        packagegroup-cross-canadian-avocado-{{ avocado.target }}: '*'
+
+  deepx-app:
+    version: 3.1.0
+    release: r0
+    summary: DeepX App inference demo suite
+    description: Production-ready AI inference application templates for the DeepX NPU (classification, detection, segmentation)
+    license: LicenseRef-DEEPX-Proprietary
+    url: https://github.com/DEEPX-AI/dx_app
+    vendor: Avocado Linux <info@avocadolinux.org>
+
+    packages:
+      dx-app:
+        compile: dx-app-build
+        install: files/dx-app-install.sh
+
+    sdk:
+      packages:
+        nativesdk-binutils: '*'
+        nativesdk-gcc: '*'
+        nativesdk-glibc-dev: '*'
+        nativesdk-libgcc-dev: '*'
+        nativesdk-cmake: '*'
+        nativesdk-ninja: '*'
+        nativesdk-git: '*'
+        nativesdk-python3: '*'
+        packagegroup-cross-canadian-avocado-{{ avocado.target }}: '*'
+
+  deepx-qt-example:
+    version: 2024.1.0
+    release: r0
+    summary: DeepX Qt5 inference example application
+    description: Qt5 example application demonstrating YOLO object detection using the DeepX NPU with live video streaming
+    license: Apache-2.0
+    url: https://github.com/embear-engineering/qt-deepx-example
+    vendor: Avocado Linux <info@avocadolinux.org>
+
+    enable_services:
+      - qt-deepx-example.service
+
+    on_merge:
+      - systemctl daemon-reload
+      # qt-deepx-example.service is PartOf=weston.service so a weston
+      # restart cascades into a (re)start of the qt app — but PartOf only
+      # propagates to *running* units, so on a redeploy (where on_unmerge
+      # stopped qt first) we still need an explicit start. --no-block on
+      # both keeps the merge from blocking on weston/GPU init.
+      - systemctl restart --no-block weston
+      - systemctl start --no-block qt-deepx-example.service
+
+    on_unmerge:
+      - systemctl stop qt-deepx-example.service
+      - systemctl restart --no-block weston
+
+    packages:
+      dx-qt-example:
+        compile: dx-qt-example-build
+        install: files/dx-qt-example-install.sh
+
+      qtbase: "*"
+      qtdeclarative: "*"
+      qtwayland: "*"
+      qtquickcontrols2: "*"
+      libopencv-core409: "*"
+      libopencv-imgproc409: "*"
+      libopencv-videoio409: "*"
+      gstreamer1.0-plugins-base: "*"
+      gstreamer1.0-plugins-good: "*"
+      gstreamer1.0-plugins-bad: "*"
+      kernel-module-uvcvideo: "*"
+      kernel-module-uvc: "*"
+      kernel-module-v4l2-async: "*"
+      kernel-module-videobuf2-v4l2: "*"
+      kernel-module-v4l2-mem2mem: "*"
+    sdk:
+      packages:
+        nativesdk-binutils: '*'
+        nativesdk-gcc: '*'
+        nativesdk-glibc-dev: '*'
+        nativesdk-libgcc-dev: '*'
+        nativesdk-cmake: '*'
+        nativesdk-ninja: '*'
+        nativesdk-git: '*'
+        packagegroup-cross-canadian-avocado-{{ avocado.target }}: '*'
+
+  deepx-models:
+    version: 2024.1.0
+    release: r0
+    summary: DeepX sample inference models
+    description: Sample ONNX/DX models for testing and demonstrating the DeepX NPU runtime
+    license: LicenseRef-DEEPX-Proprietary
+    url: https://sdk.deepx.ai/res/models/models-2_2_1.tar.gz
+    vendor: Avocado Linux <info@avocadolinux.org>
+
+    packages:
+      dx-models:
+        compile: dx-models-build
+        install: files/dx-models-install.sh
+
+    sdk:
+      packages:
+        nativesdk-curl: '*'
+        packagegroup-cross-canadian-avocado-{{ avocado.target }}: '*'
+  htop:
+    packages:
+      htop: "*"
+    version: "3.3.0"
+
+sdk:
+  image: docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  packages:
+    avocado-sdk-toolchain: '*'
+
+    nativesdk-qtbase: "*"
+  compile:
+    dx-driver-build:
+      compile: files/dx-driver-compile.sh
+      clean: files/dx-driver-clean.sh
+      packages:
+        kernel-devsrc: '*'
+
+    dx-rt-build:
+      compile: files/dx-rt-compile.sh
+      clean: files/dx-rt-clean.sh
+
+    dx-app-build:
+      compile: files/dx-app-compile.sh
+      clean: files/dx-app-clean.sh
+      packages:
+        opencv-dev: '*'
+        opencv: '*'
+        opencv-staticdev: '*'
+
+    dx-qt-example-build:
+      compile: files/dx-qt-example-compile.sh
+      clean: files/dx-qt-example-clean.sh
+      packages:
+        qtbase-dev: '*'
+        qtdeclarative-dev: '*'
+        opencv-dev: '*'
+        opencv: '*'
+        opencv-staticdev: '*'
+
+    dx-models-build:
+      compile: files/dx-models-compile.sh
+      clean: files/dx-models-clean.sh
