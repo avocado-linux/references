@@ -1,0 +1,164 @@
+default_target: grinn-astra-1680-sbc
+supported_targets:
+  - grinn-astra-1680-sbc
+
+distro:
+  release: 2024
+  channel: edge
+
+runtimes:
+  deepx:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target }}
+      - config
+      - weston
+      - deepx-driver
+      - deepx-rt
+      - deepx-models
+      - deepx-qt-example
+    packages:
+      avocado-runtime: "*"
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target }}:
+    source:
+      type: package
+      version: "*"
+
+  weston:
+    packages:
+      weston: "*"
+    version: "1.0.1"
+    on_merge:
+      - systemctl daemon-reload
+      - systemctl restart weston
+
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+    users:
+      root:
+        password: ""
+
+  deepx-driver:
+    modprobe:
+      - dx_dma
+      - dxrt_driver
+    version: "2.1.0"
+    packages:
+      dx-driver: "*"
+
+  deepx-rt:
+    enable_services:
+      - dxrt.service
+    on_merge:
+      - systemctl start --no-block dxrt.service
+    on_unmerge:
+      - systemctl stop dxrt.service
+    version: "3.2.0"
+    packages:
+      dx-rt: "*"
+
+  deepx-models:
+    version: 2024.1.0
+    release: r0
+    summary: DeepX sample inference models
+    description: Sample ONNX/DX models for testing and demonstrating the DeepX NPU runtime
+    license: LicenseRef-DEEPX-Proprietary
+    url: https://sdk.deepx.ai/res/models/models-2_2_1.tar.gz
+    packages:
+      dx-models:
+        compile: dx-models-build
+        install: files/dx-models-install.sh
+    sdk:
+      packages:
+        nativesdk-curl: '*'
+        packagegroup-cross-canadian-avocado-{{ avocado.target }}: '*'
+
+  deepx-qt-example:
+    version: 2024.1.0
+    release: r0
+    summary: DeepX Qt5 inference example application
+    description: Qt5 example application demonstrating YOLO object detection using the DeepX NPU with live video streaming
+    license: Apache-2.0
+    url: https://github.com/embear-engineering/qt-deepx-example
+    enable_services:
+      - qt-deepx-example.service
+    on_merge:
+      - systemctl daemon-reload
+      - systemctl restart weston
+      - systemctl start --no-block qt-deepx-example.service
+    on_unmerge:
+      - systemctl stop qt-deepx-example.service
+      - systemctl restart weston
+    packages:
+      dx-qt-example:
+        compile: dx-qt-example-build
+        install: files/dx-qt-example-install.sh
+      qtbase: "*"
+      qtdeclarative: "*"
+      qtwayland: "*"
+      qtquickcontrols2: "*"
+      libopencv-core409: "*"
+      libopencv-imgproc409: "*"
+      libopencv-videoio409: "*"
+      gstreamer1.0-plugins-base: "*"
+      gstreamer1.0-plugins-good: "*"
+      gstreamer1.0-plugins-bad: "*"
+      kernel-module-uvcvideo: "*"
+      kernel-module-uvc: "*"
+      kernel-module-v4l2-async: "*"
+      kernel-module-videobuf2-v4l2: "*"
+      kernel-module-v4l2-mem2mem: "*"
+    sdk:
+      packages:
+        nativesdk-binutils: '*'
+        nativesdk-gcc: '*'
+        nativesdk-glibc-dev: '*'
+        nativesdk-libgcc-dev: '*'
+        nativesdk-cmake: '*'
+        nativesdk-ninja: '*'
+        nativesdk-git: '*'
+        packagegroup-cross-canadian-avocado-{{ avocado.target }}: '*'
+
+sdk:
+  image: docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  packages:
+    avocado-sdk-toolchain: '*'
+    nativesdk-qtbase: "*"
+
+  compile:
+    dx-qt-example-build:
+      compile: files/dx-qt-example-compile.sh
+      clean: files/dx-qt-example-clean.sh
+      packages:
+        qtbase-dev: '*'
+        qtdeclarative-dev: '*'
+        opencv-dev: '*'
+        opencv: '*'
+        opencv-staticdev: '*'
+        dx-rt-dev: '*'
+        dx-rt: '*'
+    dx-models-build:
+      compile: files/dx-models-compile.sh
+      clean: files/dx-models-clean.sh
