@@ -28,6 +28,7 @@ runtimes:
       - app
     packages:
       avocado-runtime: "*"
+      kernel-modules: "*"
 
 ##
 ## Extensions

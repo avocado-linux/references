@@ -1,0 +1,16 @@
+[Unit]
+Description=Container App
+After=docker.service
+Requires=docker.service
+
+[Service]
+ExecStartPre=-/usr/bin/docker rm -f container-app
+ExecStart=/usr/bin/docker run --rm --name container-app \
+  -p 8080:8080 \
+  hello-from-avocado:latest
+ExecStop=/usr/bin/docker stop container-app
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

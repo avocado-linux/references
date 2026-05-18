@@ -1,0 +1,4 @@
+# U-Boot requires UART
+enable_uart=1
+# Enable VC4 Graphics (RPi5-specific overlay)
+dtoverlay=vc4-kms-v3d-pi5
