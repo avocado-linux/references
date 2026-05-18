@@ -49,7 +49,7 @@ runtimes:
       - docker
       - avocado-ext-dev
       - avocado-ext-sshd-dev
-      - avocado-bsp-{{ avocado.target }}
+      - avocado-bsp-{{ avocado.target.board }}
     packages:
       avocado-runtime: "*"
 
@@ -159,7 +159,7 @@ extensions:
       type: package
       version: "*"
 
-  avocado-bsp-{{ avocado.target }}:
+  avocado-bsp-{{ avocado.target.board }}:
     source:
       type: package
       version: "*"
