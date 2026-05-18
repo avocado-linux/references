@@ -1,0 +1,17 @@
+[Unit]
+Description=Container App
+After=docker.service systemd-tmpfiles-setup.service
+Requires=docker.service
+
+[Service]
+EnvironmentFile=/var/lib/container-app/active-image.env
+ExecStartPre=-/usr/bin/docker rm -f container-app
+ExecStart=/usr/bin/docker run --rm --name container-app \
+  -p 8080:8080 \
+  ${CONTAINER_IMAGE}
+ExecStop=/usr/bin/docker stop container-app
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

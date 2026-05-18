@@ -1,0 +1,182 @@
+cli_requirement: ">=0.26.0"
+
+default_target: "raspberrypi5"
+
+# Targets we ship a stone manifest for. Add a target by dropping a manifest
+# at stone/<target>/stone-<target>.json (see Customize → Adjust the var
+# partition size in getting_started.md).
+supported_targets:
+  # Raspberry Pi
+  - raspberrypi4
+  - raspberrypi5
+  # NXP i.MX
+  - imx8mp-evk
+  - imx91-frdm
+  - imx93-evk
+  - imx93-frdm
+  #
+  # Other Avocado targets are intentionally not listed because the device-side
+  # `docker` package isn't currently in their feeds:
+  #   - intel-x86-64-* / qemu* — only `podman` is packaged (no `docker`)
+  #   - jetson-* / icam-540 / recomputer-* — only `nvidia-docker` is packaged
+  # NVIDIA targets are best served by a dedicated reference that uses
+  # `nvidia-docker` and the Tegra-specific runtime hooks.
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    # Override the BSP-default partition layout so the var partition is large
+    # enough to hold the seeded Docker image cache. The default rpi4 var
+    # partition is 512 MB; we bump it to 2048 MB. To override on a different
+    # target, add a corresponding stone/<target>/stone-<target>.json file.
+    stone_manifest: stone/{{ avocado.target }}/stone-{{ avocado.target }}.json
+    stone_include_paths:
+      - stone/{{ avocado.target }}
+    extensions:
+      - app
+      - config
+      - docker
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target }}
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  # Docker engine extension: provides the Docker daemon, ca-certificates,
+  # and the kernel modules needed for Docker's bridge networking and iptables
+  # NAT/filter rules.
+  docker:
+    version: 0.1.0
+
+    enable_services:
+      - docker.service
+
+    on_merge:
+      - systemctl restart --no-block docker.service
+
+    on_unmerge:
+      - systemctl stop docker.service
+
+    overlay: overlay/docker
+
+    packages:
+      ca-certificates: '*'
+      docker: '*'
+      iptables-modules: '*'
+      # `kernel-module-br-netfilter` transitively pulls in
+      # `kernel-module-bridge` on targets where bridge is a separately
+      # loadable module (RPi, Jetson). On targets where bridge is built
+      # into the kernel (NXP i.MX, etc.) there is no separate bridge
+      # package and the explicit dependency would fail to resolve.
+      kernel-module-br-netfilter: '*'
+      kernel-module-ip-tables: '*'
+      kernel-module-ip6table-filter: '*'
+      kernel-module-ip6table-mangle: '*'
+      kernel-module-ip6table-nat: '*'
+      kernel-module-iptable-filter: '*'
+      kernel-module-iptable-mangle: '*'
+      kernel-module-iptable-nat: '*'
+      # iptable-raw is not required for Docker's default bridge networking
+      # and isn't packaged on all targets (kernel build-in vs. module
+      # varies by BSP). Add it back if you need iptables raw-table rules.
+      kernel-module-nf-conntrack-netlink: '*'
+      kernel-module-nf-nat: '*'
+      kernel-module-veth: '*'
+      kernel-module-xt-addrtype: '*'
+      kernel-module-xt-conntrack: '*'
+      kernel-module-xt-masquerade: '*'
+
+  # Application extension: declares the container image to pull at build time,
+  # the systemd unit that runs it, and the static asset bind-mounted into the
+  # container.
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Hello-from-Avocado Python 3.11 + Flask container, pulled from Docker Hub at build time"
+
+    enable_services:
+      - container-app.service
+
+    on_merge:
+      # `systemctl start docker.service` (blocking — no --no-block) is
+      # defensive: the `docker` extension's on_merge uses
+      # `systemctl restart --no-block`, which returns before the daemon
+      # is listening. container-app.service has `Requires=docker.service`
+      # so systemd will wait anyway, but starting docker explicitly here
+      # ensures the daemon is fully up before we kick off the container.
+      - systemctl start docker.service
+      - systemctl restart --no-block container-app.service
+
+    on_unmerge:
+      - systemctl stop container-app.service
+
+    overlay: overlay/app
+
+    docker_images:
+      - image: docker.io/peridionick/hello-flask
+        tag: py311
+
+    var_files:
+      - var/lib/docker/**
+
+  # Default config extension. Sets root password to empty for development
+  # convenience. Replace before any production deployment.
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+
+    # NOT FOR PRODUCTION: Set root password to empty string
+    users:
+      root:
+        password: ""
+
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target }}:
+    source:
+      type: package
+      version: "*"
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  packages:
+    avocado-sdk-toolchain: "*"
+    nativesdk-docker: "*"

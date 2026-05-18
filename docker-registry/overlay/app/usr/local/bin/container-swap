@@ -1,0 +1,50 @@
+#!/bin/sh
+#
+# Swap the running container to a different image without re-flashing.
+#
+# Usage:
+#   container-swap <image:tag>   Pull a new image and run it as container-app.
+#   container-swap reset         Restore the factory default image.
+#
+# The active image reference is persisted at /var/lib/container-app/active-image.env
+# so the swap survives reboots. The factory default below is the same image
+# baked into the var partition at build time, so reset works without network.
+#
+
+set -eu
+
+ENV_FILE=/var/lib/container-app/active-image.env
+DEFAULT_IMAGE=docker.io/peridionick/hello-flask:py311
+
+usage() {
+  cat >&2 <<EOF
+Usage:
+  container-swap <image:tag>   Pull and run a new image.
+  container-swap reset         Restore the factory default ($DEFAULT_IMAGE).
+EOF
+  exit 1
+}
+
+case "${1:-}" in
+  "" | -h | --help)
+    usage
+    ;;
+  reset)
+    NEW_IMAGE="$DEFAULT_IMAGE"
+    echo "Resetting to factory default: $NEW_IMAGE"
+    # Default image is cached locally from build time; no pull needed.
+    ;;
+  *)
+    NEW_IMAGE="$1"
+    echo "Pulling $NEW_IMAGE..."
+    docker pull "$NEW_IMAGE"
+    ;;
+esac
+
+mkdir -p "$(dirname "$ENV_FILE")"
+printf 'CONTAINER_IMAGE=%s\n' "$NEW_IMAGE" > "$ENV_FILE"
+
+echo "Restarting container-app.service..."
+systemctl restart container-app.service
+
+echo "Now running: $NEW_IMAGE"
