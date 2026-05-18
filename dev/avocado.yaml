@@ -13,7 +13,7 @@ runtimes:
       - config-dev
       - avocado-ext-dev
       - avocado-ext-sshd-dev
-      - avocado-bsp-{{ avocado.target }}
+      - avocado-bsp-{{ avocado.target.board }}
 
 extensions:
   avocado-ext-dev:
@@ -26,7 +26,7 @@ extensions:
       type: package
       version: '*'
 
-  avocado-bsp-{{ avocado.target }}:
+  avocado-bsp-{{ avocado.target.board }}:
     source:
       type: package
       version: '*'
