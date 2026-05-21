@@ -3,7 +3,7 @@ language: C
 targets:
   - qemux86-64
 topics:
-  - cross-compilation
+  - kernel
 icon: icon.png
 ---
 

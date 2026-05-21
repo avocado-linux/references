@@ -5,7 +5,6 @@ targets:
 topics:
   - monitoring
   - tui
-  - cross-compilation
 icon: icon.png
 ---
 

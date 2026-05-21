@@ -4,9 +4,9 @@ targets:
   - jetson-orin-nano-devkit
 topics:
   - vision
+  - ai
   - camera
   - gstreamer
-  - gpu
 icon: icon.png
 ---
 

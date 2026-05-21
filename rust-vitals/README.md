@@ -3,12 +3,11 @@ language: Rust
 targets:
   - "*"
 topics:
-  - cross-compilation
   - monitoring
 icon: icon.png
 ---
 
-# <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Rust System Vitals (Experimental)
+# <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Rust System Vitals
 
 A reference runtime that demonstrates how to cross-compile and deploy a Rust application on Avocado OS. The app is a system vitals reporter — a single static binary that reads from `/proc` and logs structured JSON to the journal. No runtime, no interpreter, no dependencies on the device.
 

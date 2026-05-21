@@ -5,8 +5,7 @@ targets:
 topics:
   - container
   - docker
-  - python
-  - air-gapped
+icon: icon.png
 ---
 
 # Docker Container — Local Tarball
