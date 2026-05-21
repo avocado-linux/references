@@ -4,7 +4,6 @@ targets:
   - raspberrypi5
 topics:
   - gpio
-  - cross-compilation
 icon: icon.png
 ---
 

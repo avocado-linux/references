@@ -1,4 +1,4 @@
-# <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Getting Started with Heartbeat (Experimental)
+# <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Getting Started with Heartbeat
 
 This guide walks you through building and running the heartbeat reference on Avocado OS. The heartbeat extension is a shell-based systemd service that logs system vitals as JSON — the "hello world" for Avocado OS extension development.
 
@@ -58,7 +58,7 @@ avocado provision -r dev
 avocado sdk run -iE vm dev
 ```
 
-To SSH in from another terminal:
+To SSH in from another terminal (linux):
 
 ```bash
 avocado sdk run -iE vm dev --host-fwd "2222-:22"

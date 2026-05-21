@@ -1,4 +1,4 @@
-# <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Getting Started with Rust System Vitals (Experimental)
+# <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Getting Started with Rust System Vitals
 
 This guide walks you through building and running the Rust system vitals reference on Avocado OS. The app cross-compiles a Rust binary that reads system stats from `/proc` and logs structured JSON to the journal.
 

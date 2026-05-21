@@ -5,6 +5,8 @@ default_target: "raspberrypi5"
 supported_targets:
   - raspberrypi5
   - raspberrypi4
+  - imx91-frdm
+  - imx93-frdm
 
 ##
 ## Distribution

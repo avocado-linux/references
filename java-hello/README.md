@@ -3,7 +3,7 @@ language: Java
 targets:
   - "*"
 topics:
-  - cross-compilation
+  - openjdk
 icon: icon.png
 ---
 

@@ -5,8 +5,6 @@ targets:
 topics:
   - container
   - docker
-  - python
-  - web
 ---
 
 # Docker Container — Registry Pull

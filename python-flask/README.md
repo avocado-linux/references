@@ -5,6 +5,7 @@ targets:
 topics:
   - monitoring
   - web
+  - ui
 icon: icon.png
 ---
 
