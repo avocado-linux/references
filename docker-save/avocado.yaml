@@ -1,26 +1,8 @@
-cli_requirement: ">=0.26.0"
+cli_requirement: ">=0.40.0"
 
 default_target: "raspberrypi5"
 
-# Targets we ship a stone manifest for. Add a target by dropping a manifest
-# at stone/<target>/stone-<target>.json (see Customize → Adjust the var
-# partition size in getting_started.md).
-supported_targets:
-  # Raspberry Pi
-  - raspberrypi4
-  - raspberrypi5
-  # NXP i.MX
-  - imx8mp-evk
-  - imx91-frdm
-  - imx93-evk
-  - imx93-frdm
-  #
-  # Other Avocado targets are intentionally not listed because the device-side
-  # `docker` package isn't currently in their feeds:
-  #   - intel-x86-64-* / qemu* — only `podman` is packaged (no `docker`)
-  #   - jetson-* / icam-540 / recomputer-* — only `nvidia-docker` is packaged
-  # NVIDIA targets are best served by a dedicated reference that uses
-  # `nvidia-docker` and the Tegra-specific runtime hooks.
+supported_targets: "*"
 
 ##
 ## Distribution
@@ -36,14 +18,6 @@ distro:
 
 runtimes:
   dev:
-    # Override the BSP-default partition layout so the var partition is large
-    # enough to hold the seeded tarball plus the extracted docker storage
-    # after `docker load` runs on first boot. The default rpi4 var partition
-    # is 512 MB; we bump it to 2048 MB. To override on a different target,
-    # add a corresponding stone/<target>/stone-<target>.json file.
-    stone_manifest: stone/{{ avocado.target }}/stone-{{ avocado.target }}.json
-    stone_include_paths:
-      - stone/{{ avocado.target }}
     extensions:
       - app
       - config
@@ -68,8 +42,17 @@ extensions:
     enable_services:
       - docker.service
 
+    # Blocking try-restart on purpose. The previous form
+    # `systemctl restart --no-block docker.service` raced the app
+    # extension's on_merge (which calls `docker load` immediately
+    # after): systemctl returned before docker was stable, multiple
+    # start/stop transitions fired in <10s, and systemd's start-limit
+    # tripped → docker permanently `failed (start-limit-hit)`.
+    # `try-restart` (no --no-block) waits for docker to settle, and
+    # is a no-op when docker isn't running yet (cold boot, where
+    # `enable_services` will start it).
     on_merge:
-      - systemctl restart --no-block docker.service
+      - systemctl try-restart docker.service
 
     on_unmerge:
       - systemctl stop docker.service
@@ -121,13 +104,15 @@ extensions:
       # merge (first boot, sysext refresh, or `avocado deploy`), the engine
       # registers the new image; the service then restarts and picks it up.
       #
-      # `systemctl start docker.service` (blocking — no --no-block) is
-      # required before `docker load`. The `docker` extension's on_merge
-      # uses `systemctl restart --no-block docker.service` which returns
-      # immediately; if we ran `docker load` next, it would race the
-      # daemon's startup and silently fail (image never registered),
-      # causing container-app.service to fall through to a registry pull
-      # at runtime — defeating the whole point of docker-save.
+      # `systemctl start docker.service` is blocking (no --no-block) and
+      # guarantees the daemon is accepting API calls before `docker load`
+      # — without it, the load would race startup and silently fail
+      # (image never registered), causing container-app.service to fall
+      # through to a registry pull at runtime, defeating the whole point
+      # of docker-save. With the `docker` extension's on_merge now using
+      # blocking `try-restart`, docker is already settled by the time
+      # this fires, but keeping `start` here is defense-in-depth and
+      # idempotent.
       - systemctl start docker.service
       - docker load -i /usr/lib/container-app/hello.tar
       - systemctl restart --no-block container-app.service

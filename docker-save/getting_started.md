@@ -45,15 +45,13 @@ sh build-image.sh
 avocado build
 ```
 
-> The reference ships customized stone manifests for `raspberrypis` and `NXP platforms` that bump the var partition to 2048 MB. For other targets, add `stone/<target>/stone-<target>.json` — see **Customize → Adjust the var partition size**.
-
 ### Deploy
 
 ```bash
-# Raspberry Pi 4 / 5
+# or your supported provisioning profile (usb, emmc, etc)
 avocado provision -r dev --profile sd
 
-# QEMU x86-64
+# QEMU 
 avocado provision -r dev
 ```
 

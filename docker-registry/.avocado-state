@@ -1,0 +1,5 @@
+{
+  "volume_name": "avo-d02e0fb9-8e17-4ca3-822b-d8ae67101732",
+  "source_path": "/Users/nick/work/repos/avocado/references/docker-registry",
+  "container_tool": "docker"
+}
