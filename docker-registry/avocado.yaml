@@ -1,26 +1,9 @@
-cli_requirement: ">=0.26.0"
+cli_requirement: ">=0.40.0"
 
 default_target: "raspberrypi5"
 
-# Targets we ship a stone manifest for. Add a target by dropping a manifest
-# at stone/<target>/stone-<target>.json (see Customize → Adjust the var
-# partition size in getting_started.md).
-supported_targets:
-  # Raspberry Pi
-  - raspberrypi4
-  - raspberrypi5
-  # NXP i.MX
-  - imx8mp-evk
-  - imx91-frdm
-  - imx93-evk
-  - imx93-frdm
-  #
-  # Other Avocado targets are intentionally not listed because the device-side
-  # `docker` package isn't currently in their feeds:
-  #   - intel-x86-64-* / qemu* — only `podman` is packaged (no `docker`)
-  #   - jetson-* / icam-540 / recomputer-* — only `nvidia-docker` is packaged
-  # NVIDIA targets are best served by a dedicated reference that uses
-  # `nvidia-docker` and the Tegra-specific runtime hooks.
+supported_targets: "*"
+
 
 ##
 ## Distribution
@@ -36,13 +19,6 @@ distro:
 
 runtimes:
   dev:
-    # Override the BSP-default partition layout so the var partition is large
-    # enough to hold the seeded Docker image cache. The default rpi4 var
-    # partition is 512 MB; we bump it to 2048 MB. To override on a different
-    # target, add a corresponding stone/<target>/stone-<target>.json file.
-    stone_manifest: stone/{{ avocado.target }}/stone-{{ avocado.target }}.json
-    stone_include_paths:
-      - stone/{{ avocado.target }}
     extensions:
       - app
       - config
@@ -68,7 +44,7 @@ extensions:
       - docker.service
 
     on_merge:
-      - systemctl restart --no-block docker.service
+      - systemctl try-restart docker.service
 
     on_unmerge:
       - systemctl stop docker.service
@@ -116,12 +92,13 @@ extensions:
       - container-app.service
 
     on_merge:
-      # `systemctl start docker.service` (blocking — no --no-block) is
-      # defensive: the `docker` extension's on_merge uses
-      # `systemctl restart --no-block`, which returns before the daemon
-      # is listening. container-app.service has `Requires=docker.service`
-      # so systemd will wait anyway, but starting docker explicitly here
-      # ensures the daemon is fully up before we kick off the container.
+      # `systemctl start docker.service` is blocking (no --no-block) and
+      # guarantees the daemon is accepting API calls before we kick off
+      # container-app. With the `docker` extension's on_merge now using
+      # blocking `try-restart`, docker is already settled by the time
+      # this fires, but keeping `start` here is defense-in-depth and
+      # idempotent — container-app.service has `Requires=docker.service`
+      # so systemd would wait anyway, but explicit > implicit.
       - systemctl start docker.service
       - systemctl restart --no-block container-app.service
 
