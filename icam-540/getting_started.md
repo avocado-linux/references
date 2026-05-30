@@ -99,7 +99,7 @@ Edit `avocado.yaml` to add packages under the `app` extension:
 
 ### Add application code
 
-Create an `app/` directory with source code, overlays, and build scripts following the pattern from other references (e.g., `python-gstreamer-yolo`).
+Create an `app/` directory with source code, overlays, and build scripts following the pattern from other references (e.g., `nvidia-gstreamer-yolo`).
 
 ### Rebuild after changes
 

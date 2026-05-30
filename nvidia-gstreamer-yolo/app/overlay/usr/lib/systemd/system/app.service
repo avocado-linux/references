@@ -1,0 +1,20 @@
+[Unit]
+Description=GStreamer YOLO Camera Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/app.py
+Restart=on-failure
+RestartSec=5
+
+# Camera configuration — adjust for your webcam.
+# Run `v4l2-ctl --list-formats-ext -d /dev/video0` to see supported formats.
+#Environment=CAMERA_DEVICE=/dev/video0
+#Environment=CAMERA_WIDTH=1280
+#Environment=CAMERA_HEIGHT=720
+#Environment=CAMERA_FRAMERATE=30
+
+[Install]
+WantedBy=multi-user.target
