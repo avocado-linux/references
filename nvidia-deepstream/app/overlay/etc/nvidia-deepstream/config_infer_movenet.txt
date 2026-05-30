@@ -1,0 +1,79 @@
+# nvinfer config for MoveNet Single-Pose Lightning (Google, via TF Hub →
+# tf2onnx; mirrored from PINTO_model_zoo).
+#
+# Runs as a SECONDARY GIE on each person bbox emitted by the PeopleNet
+# primary. For each crop the model emits 17 COCO keypoints — normalized
+# (y, x, confidence) coordinates within the model's 192x192 input — which
+# `app.py` then projects back into image-space coordinates using the
+# object's bbox and draws as an SVG overlay on top of the live MJPEG.
+#
+# Key points specific to MoveNet:
+#   - Input is NHWC (TensorFlow native layout), not the NCHW that nvinfer
+#     defaults to. `network-input-order=1` flips that.
+#   - Pixel values are passed through *unmodified* — MoveNet expects
+#     raw 0..255 floats. We therefore set net-scale-factor=1.0 and zero
+#     offsets, in contrast to the typical 0..1 normalization most other
+#     models want.
+#   - The output is a single tensor `[1, 1, 17, 3]`. Setting
+#     `output-tensor-meta=1` and `network-type=100` (Other) tells nvinfer
+#     to skip its built-in postprocessing (which assumes detection/
+#     classification output layouts) and attach the raw tensor to the
+#     buffer's metadata for the python pad probe to read.
+#   - `gie-unique-id` is distinct from the primary (PeopleNet uses 1, this
+#     uses 2). Pad probes filter on this id when extracting tensor meta.
+
+[property]
+gpu-id=0
+# Pass pixel values through unmodified — MoveNet expects raw 0..255 RGB
+# floats. net-scale-factor=1.0 + zero offsets disables nvinfer's default
+# 0..1 normalization. model-color-format=0 → RGB.
+net-scale-factor=1.0
+offsets=0;0;0
+model-color-format=0
+# nvinfer assumes NCHW input and hard-codes the channel dim at axis 1.
+# MoveNet's original Google/TF Hub ONNX is NHWC ([1, 192, 192, 3]); we
+# work around that at *build time* by splicing a Transpose at the front
+# of the ONNX in app-compile.sh, so by the time nvinfer sees it the
+# input is a normal NCHW [1, 3, 192, 192]. No `network-input-order` is
+# needed here — nvinfer's defaults are correct against the rewritten ONNX.
+
+onnx-file=/var/lib/nvidia-deepstream/models/movenet/movenet_singlepose_lightning.onnx
+model-engine-file=/var/lib/nvidia-deepstream/models/movenet/movenet_singlepose_lightning.onnx_b1_gpu0_fp16.engine
+
+# The MoveNet ONNX has a *fixed* input batch dimension of 1
+# (shape = [1, 192, 192, 3], not dynamic). batch-size MUST stay at 1 here
+# or TensorRT segfaults during engine build trying to grow the batch axis.
+# Practical effect: pose is computed for the first matching person crop
+# per frame. If you need multi-person pose, re-export MoveNet with a
+# dynamic batch dim (TF Hub model + tf2onnx --inputs ... -1 ...) or swap
+# in a model with dynamic batching already enabled.
+batch-size=1
+# FP16. Engine build is fast (~5 s) since the model is tiny.
+network-mode=2
+# `Other` (100) — disables all built-in postprocessing; we read the raw
+# output tensor directly in the python pad probe.
+network-type=100
+# Required when network-type=100 so nvinfer attaches the output tensor
+# to the object metadata.
+output-tensor-meta=1
+# Operate on detections from the primary GIE (PeopleNet, gie-unique-id=1).
+process-mode=2
+operate-on-gie-id=1
+# Only run pose on the Person class (PeopleNet labels: 0=Person, 1=Bag,
+# 2=Face). Pose estimation on a face/bag crop wastes compute.
+operate-on-class-ids=0
+gie-unique-id=2
+
+# Filter out tiny detections — keypoints get noisy on small crops.
+input-object-min-width=64
+input-object-min-height=128
+
+# 0 = process every primary detection; >0 skips frames between inferences
+# per-object. Set to 1 or 2 if pose is dropping the overall framerate.
+interval=0
+
+# Intentionally NOT setting `infer-dims` or `network-input-order` — the
+# MoveNet ONNX has an NHWC `[1, 192, 192, 3]` input, and TensorRT 10.x can
+# infer the correct binding shape directly from the ONNX during engine
+# build. Pinning either property to NCHW assumptions crashes the build
+# with a segfault before any "successfully built engine" log line lands.

@@ -1,0 +1,51 @@
+# NvDCF tracker config (perf profile — good balance for Orin Nano).
+# Referenced by /usr/local/bin/app.py via the nvtracker ll-config-file property.
+
+%YAML:1.0
+####################################################################################################
+# Mandatory: BaseConfig
+####################################################################################################
+BaseConfig:
+  minDetectorConfidence: 0.2
+
+TargetManagement:
+  enableBboxUnClipping: 1
+  preserveStreamUpdateOrder: 0
+  maxTargetsPerStream: 99
+
+  minIouDiff4NewTarget: 0.5
+  minTrackerConfidence: 0.2
+  probationAge: 3
+  maxShadowTrackingAge: 30
+  earlyTerminationAge: 1
+
+TrajectoryManagement:
+  useUniqueID: 0
+
+DataAssociator:
+  dataAssociatorType: 0
+  associationMatcherType: 1
+  checkClassMatch: 1
+
+  minMatchingScore4Overall: 0.0
+  minMatchingScore4SizeSimilarity: 0.6
+  minMatchingScore4Iou: 0.0
+  minMatchingScore4VisualSimilarity: 0.7
+  matchingScoreWeight4VisualSimilarity: 0.6
+  matchingScoreWeight4SizeSimilarity: 0.0
+  matchingScoreWeight4Iou: 0.4
+
+StateEstimator:
+  stateEstimatorType: 1
+
+VisualTracker:
+  visualTrackerType: 1
+
+  useColorNames: 1
+  useHog: 0
+  featureImgSizeLevel: 2
+  featureFocusOffsetFactor_y: -0.2
+
+  filterLr: 0.075
+  filterChannelWeightsLr: 0.1
+  gaussianSigma: 0.75

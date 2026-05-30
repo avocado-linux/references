@@ -1,0 +1,104 @@
+# nvdsanalytics config for the nvidia-deepstream reference.
+#
+# Two analytics features are enabled by default — picked because they are the
+# two patterns nvdsanalytics offers that take "we detected things" and turn
+# it into something operationally useful:
+#
+#   1. A line-crossing counter. A vertical line down the middle of the frame
+#      counts people moving left-to-right ("Entry") vs right-to-left ("Exit").
+#      Useful for foot-traffic, doorways, conveyor belts.
+#
+#   2. An ROI for dwell-time tracking. A rectangle in the center of the frame
+#      flags any person inside it; app.py uses the per-frame tracker-ID
+#      membership to compute how long each person has been in the region
+#      (live elapsed time) and the average/max dwell of people who have
+#      already left ("completed" dwells).
+#
+# Both run off the tracker IDs that NvDCF already assigns, so there is no
+# extra inference cost — nvdsanalytics is just geometric reasoning over the
+# detection metadata that is already in the buffer.
+#
+# Coordinates are in the pipeline frame space (config-width x config-height
+# below). The defaults assume the standard 1280x720 capture; if you override
+# CAMERA_WIDTH / CAMERA_HEIGHT in the systemd unit, edit this file (via a
+# confext-overlaid drop-in) or rescale the coordinates accordingly.
+
+[property]
+enable=1
+config-width=1280
+config-height=720
+# osd-mode = 0: nvdsanalytics computes everything but paints nothing onto
+# the frame. The dashboard reads the polygon coords from this file (via
+# /api/stats → analytics.geometry) and renders the rectangle as an SVG
+# overlay on top of the live MJPEG, so the user can toggle it on and off
+# in the UI without restarting the pipeline. (Set to 2 if you'd rather have
+# nvdsanalytics burn the overlay directly into the video stream.)
+osd-mode=0
+display-font-size=14
+
+# -----------------------------------------------------------------------------
+# Line crossing — "Entry"
+# -----------------------------------------------------------------------------
+# Format: line-crossing-<Name>=lx1;ly1;lx2;ly2;dx1;dy1;dx2;dy2
+#
+#   (lx1, ly1) -> (lx2, ly2)   the line being crossed
+#   (dx1, dy1) -> (dx2, dy2)   a "direction-of-entry" segment; objects whose
+#                              centroid moves in the same direction as this
+#                              segment when they cross the line count as
+#                              "Entry". Movement in the opposite direction is
+#                              reported as a crossing of the same line but
+#                              attributed to the reverse side, so a single
+#                              line gives you both entry and exit counts.
+#
+# Vertical line at x=640, from y=100 to y=620 (most of the visible height).
+# Direction segment points left-to-right (200,360 -> 1080,360), so people
+# moving rightward across the line are "Entry" and leftward movement is
+# the implicit reverse count.
+# Line-crossing example. Disabled by default because the live overlay is
+# noisy with a head-on USB webcam (objects on the wrong side of the line get
+# false hits when the bounding box flickers across the threshold). The ROI
+# below gives a cleaner per-entry counter for the same "how many people
+# walked past" use case. To turn line crossing back on, set enable=1; class
+# id is left at -1 (any class) for friendlier triggering across PeopleNet's
+# Person/Bag/Face outputs.
+[line-crossing-stream-0]
+enable=0
+line-crossing-Entry=640;100;640;620;200;360;1080;360
+class-id=-1
+extended=0
+mode=loose
+
+# -----------------------------------------------------------------------------
+# ROI filtering — "Center"
+# -----------------------------------------------------------------------------
+# Polygon vertices (x;y pairs) defining the region. Any tracked person whose
+# centroid falls inside this polygon shows up in obj_meta's roiStatus, which
+# app.py uses to maintain per-tracker-ID dwell timers.
+#
+# Centered rectangle covering ~50% width and ~50% height of a 1280x720 frame:
+# x in [400, 880], y in [180, 540].
+[roi-filtering-stream-0]
+enable=1
+roi-Center=400;180;880;180;880;540;400;540
+inverse-roi=0
+# class-id=-1 — see comment on the line-crossing block above for why we
+# count any class rather than filtering to Person (0).
+class-id=-1
+
+# -----------------------------------------------------------------------------
+# Disabled examples — uncomment + edit to turn on
+# -----------------------------------------------------------------------------
+# Overcrowding alert: fires when more than `object-threshold` people are in
+# the ROI simultaneously.
+[overcrowding-stream-0]
+enable=0
+roi-OC=400;180;880;180;880;540;400;540
+object-threshold=5
+class-id=0
+
+# Direction filter: tags objects moving in a specific direction (useful for
+# wrong-way detection on a one-way path).
+[direction-detection-stream-0]
+enable=0
+direction-South=640;100;640;620
+class-id=0

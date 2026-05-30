@@ -1,0 +1,52 @@
+[Unit]
+Description=NVIDIA DeepStream — Person Detection + Tracking
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# Stage the curated GStreamer plugin directory (in /run) and the writable
+# ONNX (in /var/lib) before Python starts. See the preflight script for the
+# full explanation of why both are needed.
+ExecStartPre=/usr/libexec/avocado-deepstream-preflight.sh
+
+# Restrict GStreamer's plugin scan to the curated directory built by the
+# preflight script. This is what stops the plugin scanner from opening
+# /usr/lib/gstreamer-1.0/deepstream/libcustom2d_preprocess.so (which is not
+# a GStreamer plugin and aborts the scanner with
+# `pthread_setspecific: Invalid argument` — blacklisting nvvideoconvert as
+# collateral damage). Defining the system path overrides — not augments —
+# the built-in default, so /usr/lib/gstreamer-1.0 is never scanned directly.
+Environment=GST_PLUGIN_SYSTEM_PATH_1_0=/run/avocado-gst-plugins
+
+ExecStart=/usr/bin/python3 /usr/local/bin/app.py
+Restart=on-failure
+RestartSec=5
+
+# First-boot TensorRT engine compilation takes ~60 seconds on Orin Nano
+# in FP16 mode. Bumping the start timeout to 3 minutes covers slow SD cards
+# and provides headroom; subsequent starts use the cached engine and are
+# fast. Use `journalctl -u app -f` to watch the build progress.
+TimeoutStartSec=180
+
+# Make TRT / nvinfer chatty during the engine build so the journal shows
+# real progress instead of silence. Level 4 = INFO, 5 = DEBUG.
+Environment=GST_DEBUG=2,nvinfer:4
+
+# Camera configuration. Override these via systemd drop-ins
+# (`systemctl edit app`) if your camera device or capture format differs.
+#Environment=CAMERA_DEVICE=/dev/video0
+#Environment=CAMERA_WIDTH=1280
+#Environment=CAMERA_HEIGHT=720
+#Environment=CAMERA_FRAMERATE=30
+#Environment=PORT=8080
+#Environment=LOG_LEVEL=INFO
+# Hand-detector confidence floor (obj_score * class_score, both sigmoid'd
+# in the ONNX). Lower → catch tinier / partial hands at the cost of more
+# false positives; the per-frame Python NMS at HANDDET_NMS_IOU still
+# dedupes them within a class. Override via systemd drop-in.
+#Environment=HANDDET_SCORE_THRESHOLD=0.3
+
+[Install]
+WantedBy=multi-user.target
