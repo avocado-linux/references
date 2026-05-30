@@ -1,0 +1,149 @@
+cli_requirement: ">=0.26.0"
+
+default_target: "jetson-orin-nano-devkit"
+
+supported_targets:
+  - jetson-orin-nano-devkit
+  - jetson-agx-orin-devkit
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target }}
+      - config
+      - app
+    packages:
+      avocado-runtime: "*"
+      kernel-modules: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target }}:
+    source:
+      type: package
+      version: "*"
+
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "DeepStream 7.1 person detection + tracking, native on Jetson"
+    overlay: app/overlay
+
+    packages:
+      # The DeepStream runtime + Python bindings (pyds)
+      deepstream-7.1: "*"
+      deepstream-7.1-pyds: "*"
+      deepstream-7.1-samples: "*"
+
+      # Inference backend (DeepStream's nvinfer wraps this)
+      tensorrt-core: "*"
+
+      # CUDA + cuDNN runtime libs
+      cuda-cudart: "*"
+      cuda-libraries: "*"
+      cudnn: "*"
+
+      # GStreamer + NVIDIA-accelerated plugins used by the pipeline
+      gstreamer1.0: "*"
+      gstreamer1.0-plugins-base: "*"
+      gstreamer1.0-plugins-base-app: "*"
+      gstreamer1.0-plugins-base-videoconvertscale: "*"
+      gstreamer1.0-plugins-good: "*"
+      gstreamer1.0-plugins-good-video4linux2: "*"
+      gstreamer1.0-plugins-good-jpeg: "*"
+      gstreamer1.0-plugins-good-multipart: "*"
+      gstreamer1.0-plugins-nvjpeg: "*"
+      gstreamer1.0-plugins-nvvidconv: "*"
+      gstreamer1.0-plugins-nvv4l2camerasrc: "*"
+
+      # Kernel module for USB UVC cameras
+      kernel-module-uvcvideo: "*"
+
+      # Python runtime + GStreamer bindings + Flask
+      python3: "*"
+      python3-pygobject: "*"
+      python3-flask: "*"
+
+      # `app/overlay/` ships /usr/local/bin/app.py, the nvinfer/tracker/
+      # analytics configs, the preflight script, and the staged ONNX models.
+      app:
+        compile: app
+        install: app-install.sh
+
+      # Diagnostics / convenience on-device
+      v4l-utils: "*"
+      curl: "*"
+
+    enable_services:
+      - app.service
+
+    on_merge:
+      - systemctl restart --no-block app.service
+
+    on_unmerge:
+      - systemctl stop app.service
+
+    sdk:
+      packages:
+        nativesdk-uv: "*"
+
+  # Generated default config extension.
+  # NOT FOR PRODUCTION: empty root password to keep the verify step simple.
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    app:
+      compile: app-compile.sh
+      clean: app-clean.sh
+
+  packages:
+    avocado-sdk-toolchain: "*"

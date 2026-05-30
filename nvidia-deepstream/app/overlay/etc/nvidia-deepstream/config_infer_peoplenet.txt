@@ -1,0 +1,49 @@
+# nvinfer config for PeopleNet (FP16, ResNet34, 3 classes: Person/Bag/Face).
+# Used by /usr/local/bin/app.py via the nvinfer config-file-path property.
+#
+# FP16 (network-mode=2) chosen over INT8 because the engine builds in
+# ~60 seconds on Orin Nano instead of 3–5 minutes. Inference is ~10–15%
+# slower than INT8 but still real-time at 720p; accuracy is essentially
+# identical for the demo workload.
+
+[property]
+gpu-id=0
+net-scale-factor=0.0039215697906911373
+
+# Model file. Shipped in the app sysext under /usr/lib/, but staged into
+# /var/lib at service start by /usr/libexec/avocado-deepstream-preflight.sh
+# so that the engine cache (which nvinfer always writes next to onnx-file)
+# lives on the var partition and survives sysext A/B swaps.
+onnx-file=/var/lib/nvidia-deepstream/models/peoplenet/resnet34_peoplenet_int8.onnx
+labelfile-path=/usr/lib/nvidia-deepstream/models/peoplenet/labels.txt
+
+# Engine cache path. nvinfer in DS 7.1 + TRT 10.x ignores model-engine-file
+# when *writing* the engine — it always writes to
+# `<dir-of-onnx-file>/<basename-of-onnx-file>_b<batch>_gpu<id>_<mode>.engine`.
+# For the cache to actually be hit on subsequent starts, model-engine-file
+# must point at *that* exact path (i.e. next to onnx-file). Set it
+# explicitly here so read and write paths agree; with onnx-file in /var,
+# both ends of the cache live on the OTA-persistent partition.
+model-engine-file=/var/lib/nvidia-deepstream/models/peoplenet/resnet34_peoplenet_int8.onnx_b1_gpu0_fp16.engine
+
+batch-size=1
+# 0 = FP32, 1 = INT8, 2 = FP16
+network-mode=2
+num-detected-classes=3
+interval=0
+gie-unique-id=1
+process-mode=1
+model-color-format=0
+# Intentionally omitted: nvinfer + TensorRT 10.x read IO tensor names directly
+# from the ONNX graph. Hard-coding the old TAO TF1 names (output_bbox/BiasAdd,
+# output_cov/Sigmoid) makes getTensorIOMode() reject them at engine load, and
+# the pipeline silently stalls: nvinfer never binds its outputs, no buffers
+# flow, and v4l2src eventually errors out with `not-linked (-1)` minutes later.
+# Leave unset and let nvinfer auto-discover the outputs.
+#output-blob-names=output_bbox/BiasAdd;output_cov/Sigmoid
+cluster-mode=2
+
+[class-attrs-all]
+pre-cluster-threshold=0.4
+topk=20
+nms-iou-threshold=0.5

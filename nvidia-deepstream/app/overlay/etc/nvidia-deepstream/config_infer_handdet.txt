@@ -1,0 +1,57 @@
+# nvinfer config for YOLOX-Body-Head-Hand (PINTO_model_zoo #426, nano
+# variant, non-post export at 320x320).
+#
+# Runs as a SECOND PRIMARY GIE on the full camera frame (not on each
+# PeopleNet Person crop) so hand detection stays independent of person
+# detection — works for a single hand on a desk, an extended arm
+# reaching past the body bbox, or the camera framed on hands only. The
+# model emits a fixed [1, 2100, 8] tensor of raw head outputs (cx_grid,
+# cy_grid, w_log, h_log, obj_sigmoid, c0_sigmoid, c1_sigmoid, c2_sigmoid)
+# across three FPN levels (40x40, 20x20, 10x10). The Python pad probe
+# in app.py does grid decode + class-wise NMS + letterbox-aware coord
+# mapping back to image space, and emits a synthetic NvDsObjectMeta
+# per surviving hand. Those hand metas are what the tertiary
+# hand-landmark GIE then operates on.
+#
+# Why not the `_post_` variant (with NMS baked in)? Its output is the
+# dynamic-shape [N, 7] tensor. nvinfer / TRT 10 in DS 7.1 doesn't expose
+# an output optimization profile, so the engine ends up sized for N=1
+# and only the highest-scoring detection across all classes per frame
+# survives — usually body, never hands.
+#
+# Class IDs in this model: 0=body, 1=head, 2=hand.
+[property]
+gpu-id=0
+# YOLOX official preprocessing: raw 0..255 pixel values, BGR channel
+# order. (PINTO's onnx2tf export preserves the original channel order;
+# YOLOX-COCO training is BGR.) Flip to model-color-format=0 if the model
+# was re-exported with RGB-order weights.
+net-scale-factor=1.0
+offsets=0;0;0
+model-color-format=1
+# YOLOX official preprocessing letterboxes the input (preserve aspect,
+# pad with 114). With NCHW [1, 3, 320, 320] input, stretching a portrait
+# person crop into a 320x320 square distorts small features. Letterbox
+# at the nvinfer level keeps the aspect ratio. Our Python decode treats
+# the output as 320x320 model-space coords — letterbox padding pushes
+# detections slightly inward but doesn't break the coord mapping.
+maintain-aspect-ratio=1
+symmetric-padding=1
+
+onnx-file=/var/lib/nvidia-deepstream/models/handdet/yolox_n_body_head_hand_320x320.onnx
+model-engine-file=/var/lib/nvidia-deepstream/models/handdet/yolox_n_body_head_hand_320x320.onnx_b1_gpu0_fp16.engine
+
+# FP16. Input batch is fixed at 1.
+batch-size=1
+network-mode=2
+# `Other` — disables nvinfer's built-in detection parsing; the python
+# pad probe interprets the raw output tensor itself.
+network-type=100
+output-tensor-meta=1
+# Primary GIE — processes the full frame, not a per-object crop. We
+# still set a unique id so the tertiary landmark GIE can filter on it.
+process-mode=1
+gie-unique-id=3
+
+# Every frame.
+interval=0
