@@ -62,7 +62,6 @@ extensions:
       # The DeepStream runtime + Python bindings (pyds)
       deepstream-7.1: "*"
       deepstream-7.1-pyds: "*"
-      deepstream-7.1-samples: "*"
 
       # Inference backend (DeepStream's nvinfer wraps this)
       tensorrt-core: "*"
