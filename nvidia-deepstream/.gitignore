@@ -1,6 +1,3 @@
 .avocado/
 .avocado-state/
 .DS_Store
-# Model files downloaded by app-compile.sh (PeopleNet from NGC, MoveNet
-# from PINTO's pre-converted ONNX zoo)
-app/overlay/usr/lib/nvidia-deepstream/models/
