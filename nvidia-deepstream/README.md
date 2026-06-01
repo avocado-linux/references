@@ -8,10 +8,6 @@ topics:
   - vision
   - nvidia
   - gpu
-  - tracking
-  - pose
-  - hands
-  - analytics
 icon: icon.png
 ---
 
