@@ -38,8 +38,8 @@ model-color-format=1
 maintain-aspect-ratio=1
 symmetric-padding=1
 
-onnx-file=/var/lib/nvidia-deepstream/models/handdet/yolox_n_body_head_hand_320x320.onnx
-model-engine-file=/var/lib/nvidia-deepstream/models/handdet/yolox_n_body_head_hand_320x320.onnx_b1_gpu0_fp16.engine
+onnx-file=/usr/lib/nvidia-deepstream/models/handdet/yolox_n_body_head_hand_320x320.onnx
+model-engine-file=/usr/lib/nvidia-deepstream/engines/handdet/yolox_n_body_head_hand_320x320.onnx_b1_gpu0_fp16.engine
 
 # FP16. Input batch is fixed at 1.
 batch-size=1

@@ -17,6 +17,17 @@ distro:
 ##
 ## Runtimes
 ##
+## The DeepStream vision pipeline is split across five cohesive extensions
+## (see the README "Extension layout" section for the why). systemd-sysext
+## has no inter-extension dependency mechanism, so the runtime's extension
+## list IS the contract: a working pipeline needs all five composed together.
+##
+##   vision-runtime  — the DeepStream/CUDA/TensorRT/GStreamer/Python deps
+##   vision-models   — the ONNX model weights
+##   vision-engines  — the prebuilt TensorRT engines for THIS build's target
+##   vision-config   — the nvinfer/tracker/analytics tuning configs
+##   vision-app      — the application code (app.py + service + preflight)
+##
 
 runtimes:
   dev:
@@ -25,7 +36,11 @@ runtimes:
       - avocado-ext-sshd-dev
       - avocado-bsp-{{ avocado.target }}
       - config
-      - app
+      - vision-runtime
+      - vision-models
+      - vision-engines
+      - vision-config
+      - vision-app
     packages:
       avocado-runtime: "*"
       kernel-modules: "*"
@@ -50,13 +65,22 @@ extensions:
       type: package
       version: "*"
 
-  app:
+  # ---------------------------------------------------------------------------
+  # vision-runtime — the platform layer (your DEPENDENCIES).
+  #
+  # The heavy, stable third-party stack the pipeline runs on: DeepStream, the
+  # Python bindings, TensorRT, CUDA/cuDNN, the NVIDIA GStreamer plugins, the
+  # UVC camera kernel module, and the Python interpreter + bindings the app
+  # imports. This is by far the largest extension (GB-scale once the packages
+  # are composed in) and it only changes on a JetPack / DeepStream / CUDA bump.
+  # Isolating it here means a business-logic change to vision-app never
+  # re-ships any of these bytes over the air.
+  # ---------------------------------------------------------------------------
+  vision-runtime:
     types:
       - sysext
-      - confext
     version: "0.1.0"
-    summary: "DeepStream 7.1 person detection + tracking, native on Jetson"
-    overlay: app/overlay
+    summary: "DeepStream 7.1 + CUDA/TensorRT/GStreamer/Python runtime for the vision pipeline"
 
     packages:
       # The DeepStream runtime + Python bindings (pyds)
@@ -87,33 +111,117 @@ extensions:
       # Kernel module for USB UVC cameras
       kernel-module-uvcvideo: "*"
 
-      # Python runtime + GStreamer bindings + Flask
+      # Python runtime + GStreamer bindings + Flask. These live in the runtime
+      # (dependencies) layer, NOT in vision-app: bundling the Python
+      # interpreter with the app would bloat the app extension and defeat the
+      # point of a kilobyte-sized business-logic OTA.
       python3: "*"
       python3-pygobject: "*"
       python3-flask: "*"
-
-      # `app/overlay/` ships /usr/local/bin/app.py, the nvinfer/tracker/
-      # analytics configs, the preflight script, and the staged ONNX models.
-      app:
-        compile: app
-        install: app-install.sh
 
       # Diagnostics / convenience on-device
       v4l-utils: "*"
       curl: "*"
 
-    enable_services:
-      - app.service
+  # ---------------------------------------------------------------------------
+  # vision-models — the model weights (target-agnostic).
+  #
+  # The four ONNX files. An ONNX is portable across GPUs, so these carry no
+  # target suffix. Lives at /usr/lib/nvidia-deepstream/models/<model>/ — the
+  # same path the nvinfer configs reference. Re-ships only when a model is
+  # retrained or swapped (~31 MB), independently of the runtime and the app.
+  # ---------------------------------------------------------------------------
+  vision-models:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "ONNX model weights: PeopleNet, MoveNet, YOLOX-Hand, Hand Landmark"
+    overlay: vision-models/overlay
+
+    packages:
+      # `vision-models/overlay` ships the committed ONNX files; the compile
+      # step (re)downloads any that are missing and rewrites MoveNet NHWC→NCHW.
+      models:
+        compile: vision-models
+        install: models-install.sh
 
     on_merge:
-      - systemctl restart --no-block app.service
-
-    on_unmerge:
-      - systemctl stop app.service
+      # Pick up a freshly-OTA'd model without a reboot (no-op if app not running).
+      - systemctl try-restart vision-app.service
 
     sdk:
       packages:
+        # Used by the MoveNet NHWC→NCHW ONNX rewrite in models-compile.sh.
         nativesdk-uv: "*"
+
+  # ---------------------------------------------------------------------------
+  # vision-engines — prebuilt TensorRT engines for THIS build's target.
+  #
+  # A TensorRT engine is the compiled form of a model, pinned to the GPU's
+  # compute capability, SM count, memory hierarchy, and TRT/CUDA version — so
+  # engines are inherently target-specific. There is no target suffix on the
+  # extension name because every Avocado build targets a single board: the
+  # compile hook stages only `prebuilt-engines/$AVOCADO_TARGET/`, so this
+  # extension always contains exactly the right engines for the image being
+  # built. Engines are loaded directly from this read-only extension (no /var
+  # staging) — which is why every supported target MUST ship a prebuilt engine.
+  # ---------------------------------------------------------------------------
+  vision-engines:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "Prebuilt TensorRT FP16 engines for the build target"
+    overlay: vision-engines/overlay
+
+    packages:
+      engines:
+        compile: vision-engines
+        install: engines-install.sh
+
+    on_merge:
+      - systemctl try-restart vision-app.service
+
+  # ---------------------------------------------------------------------------
+  # vision-config — the tunables (confext).
+  #
+  # nvinfer / tracker / analytics configs in /etc/nvidia-deepstream/. These are
+  # the knobs an integrator turns most often after the logic is stable (ROI
+  # polygons, confidence thresholds, tracker profile). Splitting them out makes
+  # a retune a kilobyte-sized confext OTA.
+  # ---------------------------------------------------------------------------
+  vision-config:
+    types:
+      - confext
+    version: "0.1.0"
+    summary: "nvinfer / tracker / nvdsanalytics tuning configs"
+    overlay: vision-config/overlay
+
+    on_merge:
+      - systemctl try-restart vision-app.service
+
+  # ---------------------------------------------------------------------------
+  # vision-app — the application (your CODE).
+  #
+  # Just app.py, its systemd unit, and the start-time preflight script. No
+  # packages: every dependency comes from vision-runtime. This is the extension
+  # an application engineer edits day to day, and after the split it is the only
+  # thing that re-ships on a logic change — a kilobyte-scale OTA.
+  # ---------------------------------------------------------------------------
+  vision-app:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "DeepStream person detection + tracking + pose + hands application"
+    overlay: vision-app/overlay
+
+    enable_services:
+      - vision-app.service
+
+    on_merge:
+      - systemctl restart --no-block vision-app.service
+
+    on_unmerge:
+      - systemctl stop vision-app.service
 
   # Generated default config extension.
   # NOT FOR PRODUCTION: empty root password to keep the verify step simple.
@@ -140,9 +248,12 @@ sdk:
     - -v /sys:/sys
 
   compile:
-    app:
-      compile: app-compile.sh
-      clean: app-clean.sh
+    vision-models:
+      compile: models-compile.sh
+      clean: models-clean.sh
+    vision-engines:
+      compile: engines-compile.sh
+      clean: engines-clean.sh
 
   packages:
     avocado-sdk-toolchain: "*"

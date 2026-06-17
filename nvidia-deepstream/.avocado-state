@@ -1,0 +1,5 @@
+{
+  "volume_name": "avo-e95539bc-7381-4b34-814f-b7688947fc19",
+  "source_path": "/Users/nick/work/repos/avocado/references/nvidia-deepstream",
+  "container_tool": "docker"
+}

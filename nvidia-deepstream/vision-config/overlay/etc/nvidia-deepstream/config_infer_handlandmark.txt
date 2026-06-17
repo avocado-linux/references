@@ -23,8 +23,8 @@ net-scale-factor=0.0039215686
 offsets=0;0;0
 model-color-format=0
 
-onnx-file=/var/lib/nvidia-deepstream/models/handlandmark/hand_landmark_sparse_224x224.onnx
-model-engine-file=/var/lib/nvidia-deepstream/models/handlandmark/hand_landmark_sparse_224x224.onnx_b1_gpu0_fp16.engine
+onnx-file=/usr/lib/nvidia-deepstream/models/handlandmark/hand_landmark_sparse_224x224.onnx
+model-engine-file=/usr/lib/nvidia-deepstream/engines/handlandmark/hand_landmark_sparse_224x224.onnx_b1_gpu0_fp16.engine
 
 # The ONNX has dynamic batch (N). Pin to 1 here — multi-hand pose runs
 # sequentially over hands within a frame, which is fine for the live

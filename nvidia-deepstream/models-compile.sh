@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
-# Build-time prep for the nvidia-deepstream reference. Runs in the SDK
-# container during `avocado build`. Five jobs:
+# Build-time prep for the vision-models extension. Runs in the SDK container
+# during `avocado build`. Four jobs:
 #
 #   1. Download PeopleNet (~25 MB) from NGC into the model dir.
 #   2. Download MoveNet single-pose Lightning (~9 MB) from PINTO's
@@ -12,22 +12,23 @@
 #      whose `hand` class drives the optional finger-tracking pipeline.
 #   4. Download MediaPipe Hand Landmark (~11 MB), the 21-keypoint
 #      regressor that runs as a tertiary GIE on each hand crop.
-#   5. Stage pre-built TensorRT engines for the current build target
-#      from `prebuilt-engines/<target>/`, if present. Skips the ~12 min
-#      first-boot nvinfer compile when the target's engines have been
-#      built ahead of time (TRT engines are pinned to GPU arch and
-#      TRT/CUDA version, so they're per-target).
 #
-# All model artifacts (ONNXes + pre-built engines if any) are staged into
-# app/overlay/usr/lib/nvidia-deepstream/models/ and then copied into the
-# extension sysroot by app-install.sh. Python runtime dependencies
-# (Flask, PyGObject) come from the Avocado package feed via avocado.yaml
-# — no pip step needed.
+# All ONNX artifacts are staged into vision-models/overlay/usr/lib/
+# nvidia-deepstream/models/ and then copied into the extension sysroot by
+# models-install.sh. The committed copies in the repo make this idempotent —
+# each download is skipped if the file is already present. Python runtime
+# dependencies (Flask, PyGObject) come from vision-runtime via avocado.yaml.
+#
+# The matching TensorRT engines are built and shipped separately by the
+# vision-engines extension (see engines-compile.sh) — an engine is the
+# compiled, GPU-pinned form of these portable ONNX files.
 
 set -euo pipefail
 
+MODELS_ROOT="vision-models/overlay/usr/lib/nvidia-deepstream/models"
+
 echo "[1/4] Downloading PeopleNet model from NGC..."
-PEOPLENET_DIR="app/overlay/usr/lib/nvidia-deepstream/models/peoplenet"
+PEOPLENET_DIR="$MODELS_ROOT/peoplenet"
 mkdir -p "$PEOPLENET_DIR"
 
 # PeopleNet pruned_quantized_decrypted_v2.3.4 — ONNX has Q/DQ nodes baked
@@ -53,11 +54,11 @@ download "$PEOPLENET_DIR" "$NGC_BASE?redirect=true&path=resnet34_peoplenet_int8.
 download "$PEOPLENET_DIR" "$NGC_BASE?redirect=true&path=labels.txt" labels.txt
 # Note: the int8 calibration cache (resnet34_peoplenet_int8.txt) is NOT
 # downloaded because this reference runs PeopleNet in FP16 mode for a
-# faster first-boot engine build. Add the .txt file and flip the nvinfer
-# config to network-mode=1 if you want to switch to INT8.
+# faster engine build. Add the .txt file and flip the nvinfer config to
+# network-mode=1 if you want to switch to INT8.
 
 echo "[2/4] Downloading MoveNet single-pose Lightning..."
-MOVENET_DIR="app/overlay/usr/lib/nvidia-deepstream/models/movenet"
+MOVENET_DIR="$MODELS_ROOT/movenet"
 MOVENET_ONNX="$MOVENET_DIR/movenet_singlepose_lightning.onnx"
 mkdir -p "$MOVENET_DIR"
 if [ -f "$MOVENET_ONNX" ]; then
@@ -125,7 +126,7 @@ PYEOF
 fi
 
 echo "[3/4] Downloading YOLOX-Body-Head-Hand (320x320, non-post variant)..."
-HANDDET_DIR="app/overlay/usr/lib/nvidia-deepstream/models/handdet"
+HANDDET_DIR="$MODELS_ROOT/handdet"
 HANDDET_ONNX="$HANDDET_DIR/yolox_n_body_head_hand_320x320.onnx"
 mkdir -p "$HANDDET_DIR"
 if [ -f "$HANDDET_ONNX" ]; then
@@ -150,7 +151,7 @@ else
 fi
 
 echo "[4/4] Downloading MediaPipe Hand Landmark (PINTO0309/hand_landmark v1.0.0)..."
-HANDLM_DIR="app/overlay/usr/lib/nvidia-deepstream/models/handlandmark"
+HANDLM_DIR="$MODELS_ROOT/handlandmark"
 HANDLM_ONNX="$HANDLM_DIR/hand_landmark_sparse_224x224.onnx"
 mkdir -p "$HANDLM_DIR"
 if [ -f "$HANDLM_ONNX" ]; then
@@ -165,32 +166,6 @@ else
   #   lefthand_0_or_righthand_1 : [N, 1] handedness
   echo "  fetching: hand_landmark_sparse_Nx3x224x224.onnx (~11 MB)"
   curl -fsSL "https://github.com/PINTO0309/hand_landmark/releases/download/1.0.0/hand_landmark_sparse_Nx3x224x224.onnx" -o "$HANDLM_ONNX"
-fi
-
-echo "[5/5] Staging pre-built TensorRT engines for target ($AVOCADO_TARGET)..."
-# Engines built on the matching Orin Nano / AGX Orin hardware, committed to
-# the repo at `prebuilt-engines/<target>/<model>/`. Shipping them in the
-# sysext alongside the ONNX skips the ~12 min first-boot TRT compile.
-#
-# TRT engines are pinned to GPU arch + TRT/CUDA version, so per-target
-# directories. If a target has no pre-built engines, nvinfer compiles
-# from the ONNX on first boot (the original behavior). Used to support
-# both jetson-orin-nano-devkit and jetson-agx-orin-devkit; right now only
-# the Nano directory is populated (the AGX engines need to be built on
-# actual AGX hardware and committed separately).
-ENGINE_SRC_BASE="prebuilt-engines/${AVOCADO_TARGET:-jetson-orin-nano-devkit}"
-if [ -d "$ENGINE_SRC_BASE" ]; then
-  for model in peoplenet movenet handdet handlandmark; do
-    src_dir="$ENGINE_SRC_BASE/$model"
-    dst_dir="app/overlay/usr/lib/nvidia-deepstream/models/$model"
-    if [ -d "$src_dir" ] && ls "$src_dir"/*.engine >/dev/null 2>&1; then
-      cp -v "$src_dir"/*.engine "$dst_dir/"
-    else
-      echo "  no pre-built engine for $model — nvinfer will compile from ONNX on first boot"
-    fi
-  done
-else
-  echo "  no pre-built engines for target ${AVOCADO_TARGET:-jetson-orin-nano-devkit} — nvinfer will compile from ONNX on first boot"
 fi
 
 echo "Model files:"

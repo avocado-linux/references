@@ -1,14 +1,15 @@
 [Unit]
-Description=NVIDIA DeepStream — Person Detection + Tracking
+Description=Vision pipeline — DeepStream person detection + tracking + pose + hands
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
 
-# Stage the curated GStreamer plugin directory (in /run) and the writable
-# ONNX (in /var/lib) before Python starts. See the preflight script for the
-# full explanation of why both are needed.
+# Build the curated GStreamer plugin directory (in /run) before Python starts.
+# See the preflight script for the full explanation. Models and engines are
+# loaded read-only from /usr (vision-models / vision-engines extensions); no
+# /var staging is performed.
 ExecStartPre=/usr/libexec/avocado-deepstream-preflight.sh
 
 # Restrict GStreamer's plugin scan to the curated directory built by the
@@ -24,10 +25,10 @@ ExecStart=/usr/bin/python3 /usr/local/bin/app.py
 Restart=on-failure
 RestartSec=5
 
-# First-boot TensorRT engine compilation takes ~60 seconds on Orin Nano
-# in FP16 mode. Bumping the start timeout to 3 minutes covers slow SD cards
-# and provides headroom; subsequent starts use the cached engine and are
-# fast. Use `journalctl -u app -f` to watch the build progress.
+# The prebuilt FP16 engines are memory-mapped on load, so the pipeline
+# normally reaches PLAYING in ~10-15 s. The generous 3-minute start timeout
+# is headroom for slow SD cards mmapping four engines. Use
+# `journalctl -u vision-app -f` to watch startup.
 TimeoutStartSec=180
 
 # Make TRT / nvinfer chatty during the engine build so the journal shows
@@ -35,7 +36,7 @@ TimeoutStartSec=180
 Environment=GST_DEBUG=2,nvinfer:4
 
 # Camera configuration. Override these via systemd drop-ins
-# (`systemctl edit app`) if your camera device or capture format differs.
+# (`systemctl edit vision-app`) if your camera device or capture format differs.
 #Environment=CAMERA_DEVICE=/dev/video0
 #Environment=CAMERA_WIDTH=1280
 #Environment=CAMERA_HEIGHT=720

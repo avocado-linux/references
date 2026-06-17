@@ -12,7 +12,7 @@ Run DeepStream 7.1 natively on a Jetson Orin Nano (or AGX Orin) — no container
 - A UART to USB adapter
 - A USB camera (UVC-compatible MJPEG, e.g. Logitech C920 / C270)
 - A network-reachable path from a viewing machine to the device
-- Internet access on the build machine — `app-compile.sh` downloads four models on the first build (PeopleNet from NGC; MoveNet, YOLOX-Body-Head-Hand, and MediaPipe Hand Landmark from PINTO mirrors; ~270 MB the first time, then cached)
+- Internet access on the build machine — `models-compile.sh` downloads four models on the first build (PeopleNet from NGC; MoveNet, YOLOX-Body-Head-Hand, and MediaPipe Hand Landmark from PINTO mirrors; ~270 MB the first time, then cached)
 
 ## Initialize
 
@@ -42,14 +42,14 @@ Downloads the Avocado SDK container and the runtime extensions declared in `avoc
 avocado build
 ```
 
-`app-compile.sh` runs first inside the SDK and stages four ONNX models into `app/overlay/usr/lib/nvidia-deepstream/models/`:
+`models-compile.sh` (the `vision-models` extension's compile hook) runs inside the SDK and stages four ONNX models into `vision-models/overlay/usr/lib/nvidia-deepstream/models/`:
 
 1. **PeopleNet** ONNX + labels from NGC (Person/Bag/Face detector). Used as the primary GIE.
 2. **MoveNet** (single-pose Lightning) from PINTO's ONNX zoo — extract just `model_float32.onnx` and rewrite its input layer from NHWC to NCHW (a small `onnx.helper` Transpose insertion) so DS 7.1's `nvinfer` reads it cleanly. Used as secondary GIE on each Person crop for the 17-point body skeleton.
 3. **YOLOX-Body-Head-Hand (320×320, non-post variant)** from PINTO — used as a second primary GIE on the full camera frame to find hands. The Python pad probe decodes the raw head output (grid + log-space + sigmoid) and applies per-class NMS in app.py.
 4. **MediaPipe Hand Landmark sparse (224×224)** from PINTO's `hand_landmark` GitHub release — used as tertiary GIE on each detected hand crop to produce 21 finger keypoints + handedness + presence score.
 
-`app-install.sh` then stages those into the sysroot. `avocado build` finishes by assembling the runtime extensions. Flask, PyGObject, and the rest of the Python runtime come from the Avocado package feed (`python3-flask`, `python3-pygobject`) — no pip install step is involved.
+`models-install.sh` copies those into the `vision-models` extension sysroot. Separately, `engines-compile.sh` (the `vision-engines` hook) stages the prebuilt TensorRT engines for the current build target from `prebuilt-engines/<target>/` into `vision-engines`. `avocado build` finishes by assembling all five extensions (see the *Extension layout* section in the README). Flask, PyGObject, and the rest of the Python runtime come from the Avocado package feed via the `vision-runtime` extension (`python3-flask`, `python3-pygobject`) — no pip install step is involved.
 
 ## Deploy
 
@@ -61,16 +61,9 @@ Follow the USB recovery-mode prompts. Plug in your USB camera before or after bo
 
 ## First boot — engines
 
-The reference ships **pre-built TensorRT FP16 `.engine` files** for the supported targets under `prebuilt-engines/<target>/<model>/`. `app-compile.sh` stages the engines for the current build target into `app/overlay/usr/lib/nvidia-deepstream/models/<model>/` and `app-install.sh` packages them into the sysext. At service start the preflight script copies each engine from the read-only `/usr/lib/...` location to the writable `/var/lib/...` location next to the ONNX, then nvinfer mmaps the engine and the pipeline reaches PLAYING in ~10–15 s. **No 12-minute first-boot compile** in the common case.
+The reference ships **prebuilt TensorRT FP16 `.engine` files** for the supported targets under `prebuilt-engines/<target>/<model>/`. `engines-compile.sh` stages the engines for the current build target into the `vision-engines` extension at `/usr/lib/nvidia-deepstream/engines/<model>/`, and the nvinfer configs point straight at that read-only path. At service start nvinfer memory-maps the engine and the pipeline reaches PLAYING in ~10–15 s. There is **no on-device compile and no `/var` staging** — the engine is loaded, dm-verity-verified, directly from the extension.
 
-If the sysext doesn't ship an engine for a model — e.g. a different target with no committed engines yet, or a custom model swap — the fallback is to compile from the ONNX on first boot. Wait times in that fallback:
-
-| Model | First-boot fallback build | Notes |
-| --- | --- | --- |
-| PeopleNet | ~30–60 s | Small ResNet34, FP16 build |
-| MoveNet | ~2 min | TF Hub export; small but FP16 tactic search is real |
-| MediaPipe Hand Landmark | ~60 s | Sparse 224×224 |
-| YOLOX-BHH | ~6–7 min | FP16 tactic search across three FPN heads — the long pole |
+Because there is no on-device compile path (nowhere writable to build into on an immutable OS), **every supported target must ship a prebuilt engine for every model**. `engines-compile.sh` fails the build if an engine is missing for the target rather than silently producing an image that can't start. To add a target, build and commit its engines first — see [Regenerating engines](#regenerating-engines).
 
 ### Why per-target engines?
 
@@ -82,22 +75,24 @@ prebuilt-engines/
 └── jetson-agx-orin-devkit/{...}/*.engine     # populate from an AGX Orin
 ```
 
-To regenerate or refresh engines (e.g. after a JetPack bump that invalidates the cache):
+### Regenerating engines
+
+To regenerate or refresh engines (e.g. after a JetPack bump that invalidates them, or to add a new target):
 
 1. SSH to a device running the target hardware + the matching JetPack/TRT version.
-2. Let the app run once so nvinfer compiles fresh engines under `/var/lib/nvidia-deepstream/models/<model>/*.engine`.
-3. `scp` them back to the host under the right `prebuilt-engines/<target>/<model>/` directory and commit.
-4. Next `avocado build` picks them up; next `avocado runtime deploy` ships them OTA.
+2. Build an FP16 engine for each ONNX in a writable working dir (e.g. with `trtexec`, or a scratch nvinfer config pointed at a writable `onnx-file`). The output filenames follow nvinfer's `<onnx-basename>_b1_gpu0_fp16.engine` convention.
+3. `scp` the engines back to the host under the right `prebuilt-engines/<target>/<model>/` directory and commit them.
+4. Next `avocado build` stages them into `vision-engines`; next `avocado runtime deploy` ships them OTA.
 
-### OTA-bumping engines
+### OTA-ing engines
 
-The preflight script size-compares the sysext-shipped engine against the cached `/var` copy on every boot. If they differ (post-OTA), the new engine overwrites the cached one and nvinfer loads the new engine on this boot. The cached `/var` engine is **not** authoritative across OTAs — the sysext is.
+A new engine ships as a new version of the `vision-engines` extension. On the next boot the updated extension is merged read-only at `/usr/lib/nvidia-deepstream/engines/` and nvinfer mmaps the new engine — there is no cached `/var` copy to reconcile. The extension's `on_merge` hook runs `systemctl try-restart vision-app.service`, so the app picks up the new engine without a manual reboot.
 
 ### Provision vs deploy
 
-A full `avocado provision` (tegraflash reflash) wipes `/var` and copies engines fresh on first boot from `/usr/lib/...` to `/var/lib/...`. An `avocado runtime deploy` only swaps the sysext/confext A/B partitions; on the next boot the preflight detects the new engine in the swapped sysext and refreshes `/var`. Either way the device is up in seconds.
+A full `avocado provision` (tegraflash reflash) writes all extensions fresh. An `avocado runtime deploy` only swaps the changed sysext/confext A/B partitions — e.g. just `vision-engines` or `vision-models` — and the new artifact is live on next boot. Neither path stages anything into `/var`; engines and models are always read directly from their read-only extensions.
 
-Flask doesn't bind port 8080 until `_start_pipeline()` returns, which waits for all four GIEs' engines to be loaded. If `http://<device-ip>:8080` is unreachable on first boot, check `journalctl -u app -f` to see which engine nvinfer is on.
+Flask doesn't bind port 8080 until `_start_pipeline()` returns, which waits for all four GIEs' engines to be loaded. If `http://<device-ip>:8080` is unreachable on first boot, check `journalctl -u vision-app -f` to see which engine nvinfer is on.
 
 ## Verify
 
@@ -110,7 +105,7 @@ ssh root@<device-ip>
 ### Service is running
 
 ```bash
-systemctl status app
+systemctl status vision-app
 ```
 
 `Active: active (running)`.
@@ -118,7 +113,7 @@ systemctl status app
 ### Pipeline produced frames
 
 ```bash
-journalctl -u app -b --no-pager | tail -30
+journalctl -u vision-app -b --no-pager | tail -30
 ```
 
 Look for `setting pipeline to PLAYING` and (after the engine build) `dashboard: http://0.0.0.0:8080`.
@@ -152,10 +147,10 @@ v4l2-ctl --device /dev/video0 --list-formats-ext
 
 The first command shows which `/dev/video*` node your camera is on. The second prints every pixel format / resolution / framerate the camera supports. Look for an `MJPG` entry at the resolution and framerate you want.
 
-**2. Override the defaults with a systemd drop-in.** No rebuild — write the file once on the device and `systemctl restart app`:
+**2. Override the defaults with a systemd drop-in.** No rebuild — write the file once on the device and `systemctl restart vision-app`:
 
 ```bash
-systemctl edit app
+systemctl edit vision-app
 ```
 
 ```ini
@@ -185,7 +180,7 @@ f"! videoconvert "
 
 (GStreamer calls YUYV `YUY2`.) Rebuild + redeploy.
 
-**4. If you change the resolution, rescale the Center zone.** The ROI polygon in `analytics_config.txt` is in pixel coordinates of the configured frame. The defaults (`400;180;880;180;880;540;400;540`) are for 1280×720; at 640×480 the rectangle ends up mostly off-screen. Edit those four corner points in `app/overlay/etc/nvidia-deepstream/analytics_config.txt` to whatever you want, then rebuild + redeploy. A simple starting point is a centered rectangle covering roughly the middle 50% of the frame.
+**4. If you change the resolution, rescale the Center zone.** The ROI polygon in `analytics_config.txt` is in pixel coordinates of the configured frame. The defaults (`400;180;880;180;880;540;400;540`) are for 1280×720; at 640×480 the rectangle ends up mostly off-screen. Edit those four corner points in `vision-config/overlay/etc/nvidia-deepstream/analytics_config.txt` to whatever you want, then rebuild + redeploy. A simple starting point is a centered rectangle covering roughly the middle 50% of the frame.
 
 **5. Other camera sources.** This reference uses `v4l2src` for USB UVC cameras. For a Jetson **CSI** camera, swap `v4l2src` for `nvarguscamerasrc` and adjust the caps (CSI cameras typically expose `video/x-raw(memory:NVMM),format=NV12` directly, so the `jpegdec` and first `videoconvert` aren't needed). For an **RTSP / IP** camera, use `rtspsrc location=rtsp://… ! rtph264depay ! h264parse ! nvv4l2decoder`. Everything downstream of `nvstreammux` is the same regardless of source.
 
@@ -218,7 +213,7 @@ Knobs you'll likely touch:
 - **`ENABLE_HANDS=0`** (systemd drop-in) — drops the YOLOX hand-detector and MediaPipe hand-landmark GIEs entirely; useful for benchmarking, or when you only care about bodies and skeletons.
 - **Toggle at runtime**: the skeleton, hand, and zone overlays all default to **off**. The dashboard's *Show skeletons* button `POST`s to `/api/toggle/skeletons` (and *Show hands* / *Show zones* to `/api/toggle/hands` and `/api/toggle/zones`), flipping a server-side flag the pad probe consults each frame. No service restart required; the current state is reported in `/api/stats` under `pose.overlay_enabled`.
 
-Swap MoveNet for a different pose model by replacing `app/overlay/usr/lib/nvidia-deepstream/models/movenet/movenet_singlepose_lightning.onnx` with another single-person top-down ONNX (any model that emits `[1, 1, N, 3]` keypoint outputs in normalised coords) and updating `KEYPOINT_NAMES` + `SKELETON_EDGES` to match. For multi-person bottom-up models (e.g., BodyPoseNet), you'd swap the primary GIE *and* add heatmap/PAF parsing — that's a separate reference rather than a config change.
+Swap MoveNet for a different pose model by replacing `vision-models/overlay/usr/lib/nvidia-deepstream/models/movenet/movenet_singlepose_lightning.onnx` with another single-person top-down ONNX (and committing a matching engine under `prebuilt-engines/<target>/movenet/`) (any model that emits `[1, 1, N, 3]` keypoint outputs in normalised coords) and updating `KEYPOINT_NAMES` + `SKELETON_EDGES` to match. For multi-person bottom-up models (e.g., BodyPoseNet), you'd swap the primary GIE *and* add heatmap/PAF parsing — that's a separate reference rather than a config change.
 
 ### Output RTSP instead of MJPEG
 
@@ -269,7 +264,7 @@ Coordinates in the config are in the pipeline's frame space (1280×720 by defaul
 
 #### Add a new line or ROI
 
-Edit `app/overlay/etc/nvidia-deepstream/analytics_config.txt` (in the reference repo, not on the device — it's a read-only confext at runtime), increment the stream-suffix block if you want a second line on the same stream, or duplicate the `[line-crossing-stream-0]` / `[roi-filtering-stream-0]` sections under fresh names. After rebuild + redeploy, both the painted overlay and the JSON endpoint will pick up the new zones automatically — `app.py` reads zone names from the metadata at runtime, it doesn't hardcode them.
+Edit `vision-config/overlay/etc/nvidia-deepstream/analytics_config.txt` (in the reference repo, not on the device — it's a read-only confext at runtime), increment the stream-suffix block if you want a second line on the same stream, or duplicate the `[line-crossing-stream-0]` / `[roi-filtering-stream-0]` sections under fresh names. After rebuild + redeploy, both the painted overlay and the JSON endpoint will pick up the new zones automatically — `app.py` reads zone names from the metadata at runtime, it doesn't hardcode them.
 
 ### Rebuild after changes
 
@@ -318,16 +313,16 @@ The detection metadata travels through the pipeline as `NvDsBatchMeta` attached 
 
 ## Storage layout
 
-| Location | Contents | Persistence |
-|---|---|---|
-| `/usr/lib/nvidia-deepstream/models/peoplenet/` | PeopleNet ONNX (source) + labels | Read-only in sysext; updated via OTA |
-| `/usr/lib/nvidia-deepstream/models/movenet/` | MoveNet ONNX (source) | Read-only in sysext; updated via OTA |
-| `/usr/lib/nvidia-deepstream/models/handdet/` | YOLOX-Body-Head-Hand ONNX (source) | Read-only in sysext; updated via OTA |
-| `/usr/lib/nvidia-deepstream/models/handlandmark/` | MediaPipe Hand Landmark ONNX (source) | Read-only in sysext; updated via OTA |
-| `/etc/nvidia-deepstream/` | nvinfer + tracker + analytics configs | Read-only in confext; updated via OTA |
-| `/usr/local/bin/app.py` | The Python application | Read-only in sysext; updated via OTA |
-| `/usr/libexec/avocado-deepstream-preflight.sh` | Pre-start workarounds (run by systemd) | Read-only in sysext; updated via OTA |
-| `/var/lib/nvidia-deepstream/models/peoplenet/` | Staged PeopleNet ONNX + TensorRT engine cache | Persistent; survives OTA; engine rebuilt if ONNX changes |
-| `/var/lib/nvidia-deepstream/models/movenet/` | Staged MoveNet ONNX + TensorRT engine cache | Persistent; survives OTA; engine rebuilt if ONNX changes |
-| `/var/lib/nvidia-deepstream/models/handdet/` | Staged YOLOX-Hand ONNX + TensorRT engine cache | Persistent; survives OTA; engine rebuilt if ONNX changes |
-| `/var/lib/nvidia-deepstream/models/handlandmark/` | Staged MediaPipe Hand Landmark ONNX + TensorRT engine cache | Persistent; survives OTA; engine rebuilt if ONNX changes |
+| Location | Extension | Contents | Persistence |
+|---|---|---|---|
+| `/usr/lib/nvidia-deepstream/models/<model>/` | `vision-models` | the four ONNX files (+ PeopleNet `labels.txt`) | Read-only in sysext; updated via OTA |
+| `/usr/lib/nvidia-deepstream/engines/<model>/` | `vision-engines` | prebuilt TensorRT FP16 engines for the build target | Read-only in sysext; updated via OTA |
+| `/etc/nvidia-deepstream/` | `vision-config` | nvinfer + tracker + analytics configs | Read-only in confext; updated via OTA |
+| `/usr/local/bin/app.py` | `vision-app` | the Python application | Read-only in sysext; updated via OTA |
+| `/usr/libexec/avocado-deepstream-preflight.sh` | `vision-app` | GStreamer plugin-scan curation (run by systemd at start) | Read-only in sysext; updated via OTA |
+| DeepStream / CUDA / TensorRT / GStreamer / Python | `vision-runtime` | platform packages from the Avocado feed | Read-only in sysext; updated via OTA |
+
+Nothing in this reference is staged to `/var`: models and engines are read directly from their
+read-only extensions, so an A/B extension swap fully replaces them and there is no mutable
+per-device copy to reconcile. The only runtime-writable state is the curated GStreamer plugin
+directory under `/run` (tmpfs), rebuilt on every start.

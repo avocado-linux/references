@@ -247,8 +247,6 @@ HAND_SKELETON_EDGES = [
     (0, 17),
 ]
 
-ENGINE_DIR = "/var/lib/nvidia-deepstream/engines"
-
 # Keep at most this many completed dwell records per ROI. Plenty for the
 # dashboard's recent-dwell list; older entries roll off the deque.
 DWELL_HISTORY_MAX = 50
@@ -1504,8 +1502,11 @@ def _start_pipeline():
     global _pipeline, _loop, _bus, _loop_thread
 
     Gst.init(None)
-    os.makedirs(ENGINE_DIR, exist_ok=True)
-
+    # Models (ONNX) and prebuilt TensorRT engines are shipped read-only under
+    # /usr/lib/nvidia-deepstream/ by the vision-models / vision-engines
+    # extensions; the nvinfer configs point straight at them. nvinfer mmaps the
+    # prebuilt engine on load, so there is no writable engine directory to
+    # create here.
     pipeline_str = _build_pipeline()
     log.info("pipeline: %s", pipeline_str)
     pipeline = Gst.parse_launch(pipeline_str)

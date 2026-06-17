@@ -33,12 +33,12 @@ model-color-format=0
 # nvinfer assumes NCHW input and hard-codes the channel dim at axis 1.
 # MoveNet's original Google/TF Hub ONNX is NHWC ([1, 192, 192, 3]); we
 # work around that at *build time* by splicing a Transpose at the front
-# of the ONNX in app-compile.sh, so by the time nvinfer sees it the
+# of the ONNX in models-compile.sh, so by the time nvinfer sees it the
 # input is a normal NCHW [1, 3, 192, 192]. No `network-input-order` is
 # needed here — nvinfer's defaults are correct against the rewritten ONNX.
 
-onnx-file=/var/lib/nvidia-deepstream/models/movenet/movenet_singlepose_lightning.onnx
-model-engine-file=/var/lib/nvidia-deepstream/models/movenet/movenet_singlepose_lightning.onnx_b1_gpu0_fp16.engine
+onnx-file=/usr/lib/nvidia-deepstream/models/movenet/movenet_singlepose_lightning.onnx
+model-engine-file=/usr/lib/nvidia-deepstream/engines/movenet/movenet_singlepose_lightning.onnx_b1_gpu0_fp16.engine
 
 # The MoveNet ONNX has a *fixed* input batch dimension of 1
 # (shape = [1, 192, 192, 3], not dynamic). batch-size MUST stay at 1 here
