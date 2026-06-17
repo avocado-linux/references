@@ -75,10 +75,20 @@ extensions:
   # are composed in) and it only changes on a JetPack / DeepStream / CUDA bump.
   # Isolating it here means a business-logic change to vision-app never
   # re-ships any of these bytes over the air.
+  #
+  # MUST be sysext AND confext: the CUDA / TensorRT / DeepStream packages ship
+  # their libraries under /usr and /opt (sysext) but ALSO drop
+  # /etc/ld.so.conf.d/*.conf entries (confext) that point ldconfig at the
+  # DeepStream + CUDA library directories (e.g. /opt/nvidia/deepstream/.../lib).
+  # Without the confext those /etc entries are dropped, ldconfig never learns
+  # those paths, and the NVIDIA GStreamer plugins fail to dlopen their deps —
+  # GStreamer then reports `no element "nvvideoconvert"` / `"nvinfer"` etc. and
+  # the pipeline can't be built.
   # ---------------------------------------------------------------------------
   vision-runtime:
     types:
       - sysext
+      - confext
     version: "0.1.0"
     summary: "DeepStream 7.1 + CUDA/TensorRT/GStreamer/Python runtime for the vision pipeline"
 

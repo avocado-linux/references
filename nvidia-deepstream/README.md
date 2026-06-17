@@ -35,7 +35,7 @@ all five are composed together.
 
 | Extension | Type | Holds | Re-ships when… | Rough size |
 |---|---|---|---|---|
-| `vision-runtime` | sysext | DeepStream, pyds, TensorRT, CUDA/cuDNN, GStreamer NV plugins, `uvcvideo`, Python + bindings + Flask (your **dependencies**) | JetPack / DeepStream / CUDA bump (rare) | GB-scale |
+| `vision-runtime` | sysext + confext | DeepStream, pyds, TensorRT, CUDA/cuDNN, GStreamer NV plugins, `uvcvideo`, Python + bindings + Flask (your **dependencies**) — the confext carries the packages' `/etc/ld.so.conf.d` entries so `ldconfig` can find the DeepStream/CUDA libs | JetPack / DeepStream / CUDA bump (rare) | GB-scale |
 | `vision-models` | sysext | the four ONNX files (`/usr/lib/nvidia-deepstream/models/`) | a model is retrained or swapped | ~31 MB |
 | `vision-engines` | sysext | prebuilt TensorRT engines for the build target (`/usr/lib/nvidia-deepstream/engines/`) | models change, or a TRT/JetPack bump | ~19 MB |
 | `vision-config` | confext | nvinfer / tracker / analytics configs (`/etc/nvidia-deepstream/`) | retuning thresholds, ROI zones, tracker profile | KB |
