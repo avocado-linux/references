@@ -992,9 +992,11 @@ def _peoplenet_src_pad_probe(pad, info, _user_data):
 def _load_analytics_geometry():
     """Parse the analytics config and pull out drawable zones.
 
-    The dashboard renders the ROIs as an SVG overlay on top of the live MJPEG
-    (rather than letting nvdsanalytics paint them into the stream), so it
-    needs to know the polygon coordinates. We read them once here; they don't
+    `app.py` paints the ROIs onto the frame itself via NvDsDisplayMeta (so
+    nvdsosd burns them into the MJPEG, toggled by /api/toggle/zones), rather
+    than letting nvdsanalytics paint them — so it needs to know the polygon
+    coordinates. The same geometry is also exposed in /api/stats for
+    downstream tools. We read it once here; the polygons don't
     change at runtime. Returns a dict shaped like:
 
         {

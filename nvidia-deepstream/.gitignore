@@ -1,5 +1,6 @@
 .avocado/
 .avocado-state/
+.avocado-state
 .DS_Store
 
 # Engines are staged fresh from prebuilt-engines/<target>/ at build time.

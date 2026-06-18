@@ -28,11 +28,11 @@ enable=1
 config-width=1280
 config-height=720
 # osd-mode = 0: nvdsanalytics computes everything but paints nothing onto
-# the frame. The dashboard reads the polygon coords from this file (via
-# /api/stats → analytics.geometry) and renders the rectangle as an SVG
-# overlay on top of the live MJPEG, so the user can toggle it on and off
-# in the UI without restarting the pipeline. (Set to 2 if you'd rather have
-# nvdsanalytics burn the overlay directly into the video stream.)
+# the frame. app.py reads the polygon coords from this file, attaches them
+# as NvDsDisplayMeta, and nvdsosd burns the rectangle into the live MJPEG —
+# toggled on/off at runtime via /api/toggle/zones with no pipeline restart.
+# (Set to 2 if you'd rather have nvdsanalytics burn the overlay directly
+# into the video stream instead.)
 osd-mode=0
 display-font-size=14
 

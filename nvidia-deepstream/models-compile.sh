@@ -70,7 +70,8 @@ else
   # extract only the ONNX (~9 MB) and ship that.
   echo "  fetching: PINTO MoveNet tarball (~72 MB; extracting ONNX only)"
   TMP=$(mktemp -d)
-  trap "rm -rf $TMP" EXIT
+  CLEANUP_DIRS="$TMP"
+  trap 'rm -rf $CLEANUP_DIRS' EXIT
   curl -fsSL "https://s3.ap-northeast-2.wasabisys.com/pinto-model-zoo/115_MoveNet/lightning_v4/resources.tar.gz" -o "$TMP/movenet.tar.gz"
   tar -xzf "$TMP/movenet.tar.gz" -C "$TMP" saved_model/model_float32.onnx
 
@@ -144,7 +145,10 @@ else
   # sidesteps that.
   echo "  fetching: PINTO YOLOX-BHH tarball (~240 MB; extracting one ONNX)"
   TMPYX=$(mktemp -d)
-  trap "rm -rf $TMPYX" EXIT
+  # Append to the cleanup list so the EXIT trap removes both temp dirs (the
+  # MoveNet $TMP and this $TMPYX) rather than overwriting the earlier trap.
+  CLEANUP_DIRS="${CLEANUP_DIRS:-} $TMPYX"
+  trap 'rm -rf $CLEANUP_DIRS' EXIT
   curl -fsSL "https://s3.ap-northeast-2.wasabisys.com/pinto-model-zoo/426_YOLOX-Body-Head-Hand/resources_n.tar.gz" -o "$TMPYX/yolox.tar.gz"
   tar -xzf "$TMPYX/yolox.tar.gz" -C "$TMPYX" "yolox_n_body_head_hand_0461_0.4428_1x3x320x320.onnx"
   mv "$TMPYX/yolox_n_body_head_hand_0461_0.4428_1x3x320x320.onnx" "$HANDDET_ONNX"
