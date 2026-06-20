@@ -65,6 +65,14 @@ extensions:
       python3-pygobject: "*"
       python3-numpy: "*"
       opencv: "*"
+      # GPU inference via TensorRT (engine built on-device from the ONNX at
+      # first boot). python3-tensorrt + python3-cuda give us the runtime API
+      # and CUDA memory/stream bindings; opencv above is used only for image
+      # pre/post-processing (blob, NMS, draw, JPEG), not inference.
+      python3-tensorrt: "*"
+      python3-cuda: "*"
+      tensorrt-core: "*"
+      tensorrt-plugins-prebuilt: "*"
       cudnn: "*"
       cuda-cudart: "*"
       gstreamer1.0: "*"
@@ -79,6 +87,7 @@ extensions:
       v4l-utils: "*"
       curl: "*"
     enable_services:
+      - yolo-engine-build.service
       - app.service
     on_merge:
       - systemctl restart --no-block app.service

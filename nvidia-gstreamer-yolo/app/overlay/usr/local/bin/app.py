@@ -12,11 +12,22 @@ import threading
 import cv2
 import numpy as np
 
+import tensorrt as trt
+try:
+    from cuda import cudart
+except ImportError:  # cuda-python >= 12.x relocated the runtime bindings
+    from cuda.bindings import runtime as cudart
+
 import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst, GLib
 
 from flask import Flask, Response, jsonify
+
+# Engine builder lives next to this script; used to compute the engine path
+# and to build it on demand if the oneshot service hasn't run yet.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import build_engine as engine_builder
 
 app = Flask(__name__)
 
@@ -26,6 +37,8 @@ HEIGHT = int(os.environ.get("CAMERA_HEIGHT", "720"))
 FRAMERATE = int(os.environ.get("CAMERA_FRAMERATE", "30"))
 PORT = int(os.environ.get("PORT", "5000"))
 MODEL_PATH = os.environ.get("MODEL_PATH", "/usr/lib/app/models/yolo11n.onnx")
+ENGINE_DIR = os.environ.get("ENGINE_DIR", "/var/lib/app")
+INPUT_SIZE = int(os.environ.get("INPUT_SIZE", "640"))
 CONFIDENCE_THRESHOLD = float(os.environ.get("CONFIDENCE_THRESHOLD", "0.5"))
 NMS_THRESHOLD = float(os.environ.get("NMS_THRESHOLD", "0.45"))
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO").upper()
@@ -82,76 +95,215 @@ PIPELINE_NAMES = [
 # ---------------------------------------------------------------------------
 
 class YoloDetector:
+    """Runs YOLO11 inference on the Jetson GPU via TensorRT.
+
+    The ONNX is compiled to a TensorRT engine on-device (see build_engine.py);
+    here we deserialize that engine, allocate CUDA buffers once, and run each
+    frame through execute_async_v3. Pre/post-processing stays in OpenCV/NumPy on
+    the CPU. If TensorRT can't initialize, we fall back to OpenCV-DNN on the CPU
+    so the dashboard still works (clearly labeled as such).
+    """
+
     def __init__(self, model_path):
-        self.net = None
         self.ready = False
         self._backend_name = "none"
         self._target_name = "none"
         self._cuda_device = None
         self._model_path = model_path
+        self._engine_path = None
         self._fps = 0.0
         self._inference_times = collections.deque(maxlen=100)
         self._total_inferences = 0
         self._total_detections = 0
+
+        # TensorRT state
+        self._runtime = None
+        self._engine = None
+        self._context = None
+        self._stream = None
+        self._input_name = None
+        self._output_name = None
+        self._input_shape = None
+        self._output_shape = None
+        self._d_input = None
+        self._d_output = None
+        self._h_output = None
+        self._input_nbytes = 0
+        self._output_nbytes = 0
+
+        # OpenCV-DNN CPU fallback
+        self._net = None
 
         if not os.path.exists(model_path):
             log_det.error("model not found at %s", model_path)
             return
 
         model_size_mb = os.path.getsize(model_path) / (1024 * 1024)
-        log_det.info("loading model: %s (%.1f MB)", model_path, model_size_mb)
-        self.net = cv2.dnn.readNetFromONNX(model_path)
+        log_det.info("model: %s (%.1f MB)", model_path, model_size_mb)
 
-        # Try CUDA backend, fall back to CPU
+        if self._init_tensorrt(model_path):
+            self.ready = True
+        elif self._init_cpu_fallback(model_path):
+            self.ready = True
+
+        if self.ready:
+            log_det.info("detector ready — backend=%s target=%s", self._backend_name, self._target_name)
+        else:
+            log_det.error("detector could not be initialized on GPU or CPU")
+
+    # -- CUDA helper --------------------------------------------------------
+
+    @staticmethod
+    def _cuda_check(ret):
+        """Unwrap a cuda-python return tuple (err, *out), raising on error."""
+        if isinstance(ret, (tuple, list)):
+            err, out = ret[0], ret[1:]
+        else:
+            err, out = ret, ()
+        if err != cudart.cudaError_t.cudaSuccess:
+            raise RuntimeError(f"CUDA error: {err}")
+        if len(out) == 1:
+            return out[0]
+        return out or None
+
+    def _query_cuda_device(self):
         try:
-            self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
-            self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
-            # Run a dummy inference to confirm CUDA actually works
-            log_det.info("testing CUDA backend with dummy inference...")
-            dummy = np.zeros((1, 3, 640, 640), dtype=np.float32)
-            self.net.setInput(dummy)
-            t0 = time.monotonic()
-            self.net.forward()
-            warmup_ms = (time.monotonic() - t0) * 1000
-            self._backend_name = "CUDA"
-            self._target_name = "CUDA"
-            log_det.info("CUDA backend active (warmup: %.0fms)", warmup_ms)
-            self._log_cuda_info()
+            return self._cuda_check(cudart.cudaGetDevice())
+        except Exception:
+            return None
+
+    # -- TensorRT init ------------------------------------------------------
+
+    def _load_engine(self, path):
+        """Deserialize a TensorRT engine file. Returns None on failure (e.g. a
+        prebuilt engine built against a different TensorRT version)."""
+        try:
+            log_det.info("loading TensorRT engine: %s", path)
+            with open(path, "rb") as f:
+                engine = self._runtime.deserialize_cuda_engine(f.read())
+            if engine is None:
+                log_det.warning("deserialize returned None for %s", path)
+            return engine
         except Exception as e:
-            log_det.warning("CUDA unavailable: %s", e)
-            log_det.info("falling back to CPU backend (OpenCV DNN)")
-            self.net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
-            self.net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
+            log_det.warning("could not load engine %s: %s", path, e)
+            return None
+
+    def _init_tensorrt(self, model_path):
+        try:
+            logger = trt.Logger(trt.Logger.WARNING)
+            trt.init_libnvinfer_plugins(logger, "")
+            self._runtime = trt.Runtime(logger)
+
+            # Engine acquisition order:
+            #   1. on-device cache in /var (built or rebuilt here previously)
+            #   2. prebuilt engine shipped read-only in the image (/usr) — the
+            #      common case for users of this reference: zero build wait
+            #   3. build on-device now (no prebuilt, or a model swap)
+            cached = engine_builder.engine_path_for(model_path, ENGINE_DIR)
+            prebuilt = engine_builder.prebuilt_engine_for(model_path)
+            self._engine = None
+            for cand in (cached, prebuilt):
+                if cand and os.path.exists(cand):
+                    self._engine = self._load_engine(cand)
+                    if self._engine is not None:
+                        self._engine_path = cand
+                        break
+
+            # Nothing loaded — either no engine was present, or a shipped
+            # prebuilt failed to deserialize (a TensorRT version bump in the
+            # feed invalidates an embedded engine). Build a fresh one on-device;
+            # this is the self-healing path that keeps the reference working
+            # across TRT upgrades and model swaps.
+            if self._engine is None:
+                self._engine_path = engine_builder.build_engine(model_path, ENGINE_DIR, force=True)
+                self._engine = self._load_engine(self._engine_path)
+            if self._engine is None:
+                raise RuntimeError("failed to load or build a TensorRT engine")
+
+            self._context = self._engine.create_execution_context()
+
+            # Resolve the I/O tensors via the TRT 10 name-based API.
+            for i in range(self._engine.num_io_tensors):
+                name = self._engine.get_tensor_name(i)
+                shape = tuple(self._engine.get_tensor_shape(name))
+                if self._engine.get_tensor_mode(name) == trt.TensorIOMode.INPUT:
+                    self._input_name, self._input_shape = name, shape
+                else:
+                    self._output_name, self._output_shape = name, shape
+
+            if not self._input_name or not self._output_name:
+                raise RuntimeError("could not resolve engine I/O tensors")
+
+            # Allocate device + host buffers once (static shapes, FP32 I/O).
+            self._input_nbytes = int(np.prod(self._input_shape)) * np.float32().itemsize
+            self._output_nbytes = int(np.prod(self._output_shape)) * np.float32().itemsize
+            self._d_input = self._cuda_check(cudart.cudaMalloc(self._input_nbytes))
+            self._d_output = self._cuda_check(cudart.cudaMalloc(self._output_nbytes))
+            self._h_output = np.empty(self._output_shape, dtype=np.float32)
+            self._context.set_tensor_address(self._input_name, int(self._d_input))
+            self._context.set_tensor_address(self._output_name, int(self._d_output))
+            self._stream = self._cuda_check(cudart.cudaStreamCreate())
+
+            # Warm up so the first real frame isn't penalized.
+            t0 = time.monotonic()
+            self._infer_trt(np.zeros(self._input_shape, dtype=np.float32))
+            warmup_ms = (time.monotonic() - t0) * 1000
+
+            self._backend_name = "TensorRT"
+            self._target_name = "CUDA"
+            self._cuda_device = self._query_cuda_device()
+            log_det.info(
+                "TensorRT engine active (warmup: %.0fms, in=%s out=%s)",
+                warmup_ms, self._input_shape, self._output_shape,
+            )
+            return True
+        except Exception as e:
+            log_det.warning("TensorRT init failed: %s", e)
+            self._teardown_trt()
+            return False
+
+    def _init_cpu_fallback(self, model_path):
+        try:
+            log_det.warning("falling back to CPU inference via OpenCV DNN (NO GPU acceleration)")
+            self._net = cv2.dnn.readNetFromONNX(model_path)
+            self._net.setPreferableBackend(cv2.dnn.DNN_BACKEND_OPENCV)
+            self._net.setPreferableTarget(cv2.dnn.DNN_TARGET_CPU)
             self._backend_name = "OpenCV"
             self._target_name = "CPU"
-            # Log a CPU warmup too for comparison
-            dummy = np.zeros((1, 3, 640, 640), dtype=np.float32)
-            self.net.setInput(dummy)
-            t0 = time.monotonic()
-            self.net.forward()
-            warmup_ms = (time.monotonic() - t0) * 1000
-            log_det.info("CPU backend active (warmup: %.0fms)", warmup_ms)
+            return True
+        except Exception as e:
+            log_det.error("CPU fallback failed: %s", e)
+            return False
 
-        self.ready = True
-        log_det.info("model loaded successfully — backend=%s target=%s", self._backend_name, self._target_name)
-
-    def _log_cuda_info(self):
-        """Log available CUDA device information from OpenCV."""
-        try:
-            cuda_count = cv2.cuda.getCudaEnabledDeviceCount()
-            log_det.info("CUDA devices found: %d", cuda_count)
-            for i in range(cuda_count):
-                cv2.cuda.setDevice(i)
-                dev = cv2.cuda.getDevice()
-                log_det.info("  device %d: id=%d", i, dev)
-                # Try to print device props if available
+    def _teardown_trt(self):
+        for ptr in (self._d_input, self._d_output):
+            if ptr is not None:
                 try:
-                    cv2.cuda.printCudaDeviceInfo(i)
+                    cudart.cudaFree(ptr)
                 except Exception:
                     pass
-            self._cuda_device = cv2.cuda.getDevice()
-        except Exception as e:
-            log_det.debug("could not query CUDA device info: %s", e)
+        if self._stream is not None:
+            try:
+                cudart.cudaStreamDestroy(self._stream)
+            except Exception:
+                pass
+        self._engine = self._context = self._stream = None
+        self._d_input = self._d_output = None
+
+    # -- Inference ----------------------------------------------------------
+
+    def _infer_trt(self, blob):
+        """Run one TensorRT forward pass. blob: float32 NCHW matching input shape."""
+        blob = np.ascontiguousarray(blob, dtype=np.float32)
+        self._cuda_check(cudart.cudaMemcpyAsync(
+            int(self._d_input), blob.ctypes.data, self._input_nbytes,
+            cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, self._stream))
+        self._context.execute_async_v3(self._stream)
+        self._cuda_check(cudart.cudaMemcpyAsync(
+            self._h_output.ctypes.data, int(self._d_output), self._output_nbytes,
+            cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, self._stream))
+        self._cuda_check(cudart.cudaStreamSynchronize(self._stream))
+        return self._h_output
 
     def detect(self, frame):
         if not self.ready:
@@ -160,40 +312,44 @@ class YoloDetector:
         h, w = frame.shape[:2]
         t0 = time.monotonic()
 
-        # Preprocess: letterbox resize to 640x640
+        # Preprocess: resize to the network's square input, scale to [0,1], BGR->RGB.
         blob = cv2.dnn.blobFromImage(
-            frame, 1 / 255.0, (640, 640), swapRB=True, crop=False
+            frame, 1 / 255.0, (INPUT_SIZE, INPUT_SIZE), swapRB=True, crop=False
         )
-        self.net.setInput(blob)
-        outputs = self.net.forward()
 
-        # YOLO11 output shape: (1, 84, 8400) -> transpose to (8400, 84)
-        outputs = outputs[0].T
+        if self._engine is not None:
+            output = self._infer_trt(blob)
+        else:
+            self._net.setInput(blob)
+            output = self._net.forward()
+
+        # YOLO11 output shape: (1, 84, 8400) -> (8400, 84).
+        preds = output[0].T
+
+        x_scale = w / float(INPUT_SIZE)
+        y_scale = h / float(INPUT_SIZE)
+
+        # Vectorized confidence filter — avoids a Python loop over all 8400
+        # candidates, which would otherwise become the bottleneck once GPU
+        # inference is fast.
+        class_scores = preds[:, 4:]
+        class_ids_all = np.argmax(class_scores, axis=1)
+        confidences_all = class_scores[np.arange(class_scores.shape[0]), class_ids_all]
+        keep = confidences_all >= CONFIDENCE_THRESHOLD
+        preds = preds[keep]
+        class_ids_all = class_ids_all[keep]
+        confidences_all = confidences_all[keep]
 
         boxes = []
         confidences = []
         class_ids = []
-
-        x_scale = w / 640.0
-        y_scale = h / 640.0
-
-        for detection in outputs:
-            scores = detection[4:]
-            class_id = np.argmax(scores)
-            confidence = scores[class_id]
-
-            if confidence < CONFIDENCE_THRESHOLD:
-                continue
-
-            cx, cy, bw, bh = detection[:4]
+        for det, cid, conf in zip(preds, class_ids_all, confidences_all):
+            cx, cy, bw, bh = det[:4]
             x1 = int((cx - bw / 2) * x_scale)
             y1 = int((cy - bh / 2) * y_scale)
-            bw_scaled = int(bw * x_scale)
-            bh_scaled = int(bh * y_scale)
-
-            boxes.append([x1, y1, bw_scaled, bh_scaled])
-            confidences.append(float(confidence))
-            class_ids.append(int(class_id))
+            boxes.append([x1, y1, int(bw * x_scale), int(bh * y_scale)])
+            confidences.append(float(conf))
+            class_ids.append(int(cid))
 
         # Non-maximum suppression
         indices = cv2.dnn.NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD) if boxes else []
@@ -258,6 +414,7 @@ class YoloDetector:
     def stats(self):
         return {
             "path": self._model_path,
+            "engine": self._engine_path,
             "loaded": self.ready,
             "backend": self._backend_name,
             "target": self._target_name,
@@ -955,19 +1112,10 @@ if __name__ == "__main__":
     log.info("device: %s", DEVICE_ID)
     log.info("camera: %s (%dx%d@%dfps)", DEVICE, WIDTH, HEIGHT, FRAMERATE)
     log.info("model: %s", MODEL_PATH)
+    log.info("tensorrt: %s", trt.__version__)
     log.info("confidence: %.2f  nms: %.2f", CONFIDENCE_THRESHOLD, NMS_THRESHOLD)
     log.info("log level: %s", LOG_LEVEL)
     log.info("dashboard: http://0.0.0.0:%d", PORT)
-
-    # OpenCV build info for debugging CUDA availability
-    build_info = cv2.getBuildInformation()
-    cuda_lines = [l.strip() for l in build_info.split("\n") if "CUDA" in l or "cuDNN" in l]
-    if cuda_lines:
-        log_det.info("OpenCV CUDA build info:")
-        for line in cuda_lines:
-            log_det.info("  %s", line)
-    else:
-        log_det.warning("no CUDA references found in OpenCV build info — CUDA likely not compiled in")
 
     # Prime CPU stats
     read_cpu()

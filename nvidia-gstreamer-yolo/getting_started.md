@@ -28,7 +28,7 @@ Install the SDK toolchain, extension dependencies, and runtime packages:
 avocado install -f
 ```
 
-This pulls the SDK container image and installs `nativesdk-uv` for pip package compilation. Runtime packages include OpenCV with CUDA support, cuDNN, GStreamer plugins, and the UVC camera driver.
+This pulls the SDK container image and installs `nativesdk-uv` for pip package compilation. Runtime packages include TensorRT (`python3-tensorrt`, `tensorrt-core`), the CUDA Python bindings (`python3-cuda`), cuDNN, OpenCV (used for image pre/post-processing only), GStreamer plugins, and the UVC camera driver.
 
 ## Build
 
@@ -50,11 +50,14 @@ avocado provision -r dev
 
 ## Verify
 
-Log in as `root` with an empty password. The app service starts automatically on boot.
+Log in as `root` with an empty password. The reference ships a **prebuilt FP16 TensorRT engine** (`app/overlay/usr/lib/app/engines/yolo11n.onnx.fp16.engine`), so the app starts detecting immediately — no on-device compile wait.
+
+`yolo-engine-build.service` still runs at boot but is a near-instant no-op while the prebuilt engine is present. It only compiles an engine when there isn't one for the active model — e.g. you swap to `yolo11s`, or the embedded engine fails to load after a TensorRT version bump in the feed (in which case the app rebuilds it on-device automatically, a one-time ~few-minute cost that's then cached under `/var/lib/app`).
 
 Open your browser to `http://<device-ip>:5000` to view the dashboard.
 
 ```bash
+systemctl status yolo-engine-build   # one-time engine compile (first boot)
 systemctl status app
 journalctl -u app -f
 ```
@@ -65,13 +68,16 @@ You should see output like:
 app starting
   device: avocado-jetson-orin-nano-devkit
   camera: /dev/video0 (1280x720@30fps)
-  dashboard: http://0.0.0.0:5000
-  loading model: /usr/lib/app/models/yolo11n.onnx (10.2 MB)
-  CUDA backend active
-  model loaded successfully
+  model: /usr/lib/app/models/yolo11n.onnx
+  tensorrt: 10.3.0
+  loading TensorRT engine: /usr/lib/app/engines/yolo11n.onnx.fp16.engine
+  TensorRT engine active (warmup: 42ms, in=(1, 3, 640, 640) out=(1, 84, 8400))
+  detector ready — backend=TensorRT target=CUDA
   trying pipeline 1/4 [nvidia-mjpeg-decode]...
   pipeline started: [nvidia-mjpeg-decode] (GPU=True)
 ```
+
+If TensorRT can't initialize for any reason, the app falls back to CPU inference via OpenCV DNN (`backend=OpenCV target=CPU` — much slower) so the dashboard still works.
 
 The dashboard shows a live annotated video feed, detected objects with confidence scores, inference FPS, and device metrics.
 
@@ -111,16 +117,18 @@ Replace `yolo11n.onnx` with a different YOLO11 variant for accuracy vs. speed:
 | `yolo11s.onnx` | 37 MB | Fast | Better |
 | `yolo11m.onnx` | 77 MB | Medium | High |
 
-Export a new model with opset 12 for OpenCV 4.9 compatibility:
+Export a new model to ONNX (TensorRT 10 handles recent opsets — opset 17 is a safe default):
 
 ```bash
 uv run --with ultralytics python3 -c "
 from ultralytics import YOLO
 model = YOLO('yolo11s.pt')
-model.export(format='onnx', opset=12)
+model.export(format='onnx', opset=17)
 "
 cp yolo11s.onnx app/overlay/usr/lib/app/models/
 ```
+
+Point the app at the new file via the `MODEL_PATH` env var in `app.service` (or replace `yolo11n.onnx`). The engine filename is derived from the model name, so a new model triggers a fresh on-device engine build automatically. To force a rebuild after re-exporting the *same* filename, delete the cached engine: `rm /var/lib/app/*.engine`.
 
 ### Adjust detection sensitivity
 

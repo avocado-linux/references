@@ -1,0 +1,16 @@
+[Unit]
+Description=Build TensorRT engine for YOLO model (first boot)
+# A TensorRT engine is GPU/TRT-version specific, so it is compiled from the
+# shipped ONNX here on the device rather than baked into the image. The build
+# script is idempotent — it no-ops once the engine exists, so this is a one-time
+# cost on first boot (and again only if the model is swapped).
+After=local-fs.target
+Before=app.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 /usr/local/bin/build_engine.py
+
+[Install]
+WantedBy=multi-user.target

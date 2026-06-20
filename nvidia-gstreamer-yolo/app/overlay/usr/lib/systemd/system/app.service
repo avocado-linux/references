@@ -1,7 +1,11 @@
 [Unit]
 Description=GStreamer YOLO Camera Dashboard
-After=network-online.target
+After=network-online.target yolo-engine-build.service
 Wants=network-online.target
+# Wait for the TensorRT engine to be built before starting. Not a hard
+# Requires= — if the engine build fails, the app still starts and falls back
+# to CPU inference (clearly labeled in the dashboard) rather than not starting.
+Wants=yolo-engine-build.service
 
 [Service]
 Type=simple
