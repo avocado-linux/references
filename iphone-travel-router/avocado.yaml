@@ -1,0 +1,124 @@
+cli_requirement: ">=0.26.0"
+
+default_target: "raspberrypi5"
+
+supported_targets:
+  - raspberrypi5
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - config
+      - app
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "iPhone-tether travel router with Cockpit web UI"
+    overlay: app/overlay
+    packages:
+      app:
+        install: app-install.sh
+
+      # Connectivity stack — NetworkManager owns wlan0 + the ipheth interface.
+      networkmanager: "*"
+      networkmanager-daemon: "*"
+      networkmanager-nmcli: "*"
+
+      # Web UI
+      cockpit: "*"
+      cockpit-ws: "*"
+      cockpit-bridge: "*"
+      cockpit-shell: "*"
+      cockpit-systemd: "*"
+      cockpit-networkmanager: "*"
+
+      # iOS pairing + USB tether daemon
+      usbmuxd: "*"
+      libimobiledevice: "*"
+
+      # NM forks these as helpers when an interface is set to ipv4.method=shared
+      # or wifi.mode=ap. They must be present on disk; NM does not RDEPEND.
+      dnsmasq: "*"
+      hostapd: "*"
+      iptables: "*"
+
+      # Kernel modules. avocado-cli auto-suffixes -${KERNEL_VERSION} at install
+      # time, so dnf resolves to the resolver-pinned kernel.
+      kernel-module-usbnet: "*"
+      kernel-module-cdc-ether: "*"
+      kernel-module-cdc-ncm: "*"
+      kernel-module-ipheth: "*"
+      kernel-module-iptable-nat: "*"
+      kernel-module-iptable-filter: "*"
+      kernel-module-xt-masquerade: "*"
+    on_merge:
+      - sh -c 'systemctl reload NetworkManager.service 2>/dev/null || true'
+
+  # Cockpit requires a non-empty password for PAM login. Avocado's typical
+  # empty-string root password (see other references) will lock you out of
+  # the web UI. Override here for the dev runtime.
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+
+    # NOT FOR PRODUCTION
+    users:
+      root:
+        password: "avocado"
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  packages:
+    avocado-sdk-toolchain: "*"
