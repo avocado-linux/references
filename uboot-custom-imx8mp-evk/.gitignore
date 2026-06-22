@@ -1,0 +1,5 @@
+.avocado/
+.avocado-state
+.downloads/
+keys/*.key
+keys/*.crt
