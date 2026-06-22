@@ -1,0 +1,26 @@
+[Unit]
+Description=i.MX8MP NPU MobileNet camera classification (NNStreamer + VX delegate)
+After=weston.service
+Wants=weston.service
+ConditionPathExists=/dev/video0
+
+[Service]
+Type=simple
+# waylandsink connects to the weston compositor's socket.
+Environment=XDG_RUNTIME_DIR=/run/user/0
+Environment=WAYLAND_DISPLAY=wayland-1
+# Flip to USE_NPU=0 to run the identical model on the CPU and compare fps.
+Environment=USE_NPU=1
+# Browser preview (MJPEG over HTTP) at http://<board>:8080/ -- works headless,
+# no display needed. Set WEB_PORT=0 to disable.
+Environment=WEB_PORT=8080
+#Environment=USE_DISPLAY=auto
+#Environment=CAMERA_DEVICE=auto
+#Environment=CAM_WIDTH=640
+#Environment=CAM_HEIGHT=480
+ExecStart=/usr/bin/python3 /usr/local/bin/app.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
