@@ -1,0 +1,15 @@
+[Unit]
+Description=Load Zephyr firmware onto the i.MX8MP Cortex-M7 via remoteproc
+# No-op (not a failure) when the M7 remoteproc node is absent, i.e. when the
+# board did not boot the imx8mp-evk-rpmsg devicetree. See the project README.
+ConditionPathExists=/sys/class/remoteproc/remoteproc0
+After=multi-user.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/sbin/zephyr-m7-load.sh
+ExecStop=/bin/sh -c 'echo stop > /sys/class/remoteproc/remoteproc0/state 2>/dev/null || true'
+
+[Install]
+WantedBy=multi-user.target
