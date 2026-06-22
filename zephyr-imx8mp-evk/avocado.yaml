@@ -1,0 +1,121 @@
+cli_requirement: ">=0.26.0"
+
+default_target: imx8mp-evk
+
+supported_targets:
+  - imx8mp-evk
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      # The BSP ships imx8mp-evk-rpmsg.dtb, which declares the Cortex-M7
+      # remoteproc node + reserved memory the Zephyr firmware needs. The
+      # board must boot that DTB (see README) for /sys/class/remoteproc to
+      # appear.
+      - avocado-bsp-{{ avocado.target.board }}
+      - config
+      - zephyr-m7
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  # The Zephyr firmware extension. `avocado build` runs sdk.compile.zephyr
+  # (cross-builds the M7 firmware in the SDK), then zephyr-install.sh drops
+  # the resulting ELF into this extension's sysroot at /usr/lib/firmware.
+  # The overlay carries a oneshot unit that loads the firmware onto the M7
+  # via the Linux remoteproc driver at boot.
+  zephyr-m7:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "Zephyr RTOS firmware for the i.MX8MP Cortex-M7, cross-built in the Avocado SDK"
+    overlay: zephyr-m7/overlay
+    packages:
+      zephyr-m7-fw:
+        compile: zephyr
+        install: zephyr-install.sh
+    enable_services:
+      - zephyr-m7-remoteproc.service
+
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+
+    # NOT FOR PRODUCTION: empty root password for easy console/ssh access.
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}"
+
+  # Zephyr's `west update` fetches the Zephyr tree + modules (incl. hal_nxp)
+  # over the network at compile time, so the SDK container needs host
+  # networking — same as the uboot-custom-imx8mp-evk reference.
+  container_args:
+    - --network=host
+
+  compile:
+    zephyr:
+      compile: zephyr-compile.sh
+      clean: zephyr-clean.sh
+
+  # Host-side (nativesdk) build tools. After the meta-avocado packagegroup
+  # change these also ship in the base SDK on cortex-m machines, but listing
+  # them here keeps the project self-contained and explicit (same convention
+  # as the uboot-custom reference listing nativesdk-dtc).
+  #
+  #   nativesdk-gcc-arm-none-eabi  bare-metal Cortex-M compiler (gnuarmemb)
+  #   nativesdk-cmake / -ninja     Zephyr's build system
+  #   nativesdk-dtc                devicetree compiler
+  #   nativesdk-gperf              Zephyr kconfig/codegen dependency
+  #   nativesdk-python3 / -pip     run west + Zephyr's python build scripts
+  #   nativesdk-git                west fetches sources via git
+  packages:
+    avocado-sdk-toolchain: "*"
+    nativesdk-gcc-arm-none-eabi: "*"
+    nativesdk-cmake: "*"
+    nativesdk-ninja: "*"
+    nativesdk-dtc: "*"
+    nativesdk-gperf: "*"
+    nativesdk-python3: "*"
+    nativesdk-python3-pip: "*"
+    nativesdk-git: "*"
