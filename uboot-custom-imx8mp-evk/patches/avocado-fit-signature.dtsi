@@ -1,0 +1,42 @@
+// SPDX-License-Identifier: GPL-2.0+
+/*
+ * Avocado FIT-signature placeholder for imx8mp-evk U-Boot.
+ *
+ * This dtsi is appended to imx8mp-evk-u-boot.dtsi (the U-Boot-side DTS
+ * overlay) so the resulting control DTB carries a /signature node with
+ * a key-rt-prod placeholder subnode.
+ *
+ * At build time this DTB is empty: rsa,modulus / rsa,r-squared /
+ * rsa,n0-inverse / rsa,exponent are absent. The bootloader is built and
+ * flashed with the placeholder DTB.
+ *
+ * After build, before flashing to a device, run
+ *
+ *     mkimage -F -k <keys-dir> -K <built u-boot.dtb> \
+ *             -r -o sha256,rsa2048 \
+ *             <fit-image.itb>
+ *
+ * mkimage -K populates the placeholder node IN PLACE in the U-Boot
+ * control DTB with the public-key bytes derived from the RSA key in
+ * <keys-dir>/dev.key. This is the "replace later" model: build U-Boot
+ * once, generate (or rotate) FIT signing keys independently, then patch
+ * the pubkey into the bootloader DTB without rebuilding U-Boot itself.
+ *
+ * Re-pack flash.bin via imx-mkimage after running mkimage -K so the
+ * patched DTB makes it onto the boot partition. The reference's
+ * insert-fit-pubkey.sh helper script wraps both steps.
+ *
+ * required = "conf" makes signature verification mandatory: any FIT
+ * config the bootloader is asked to load that doesn't reference a key
+ * present in this /signature node fails to boot.
+ */
+
+&{/} {
+	signature {
+		key-rt-prod {
+			required = "conf";
+			algo = "sha256,rsa2048";
+			key-name-hint = "dev";
+		};
+	};
+};
