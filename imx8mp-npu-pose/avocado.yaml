@@ -1,0 +1,122 @@
+cli_requirement: ">=0.26.0"
+
+default_target: "ucm-imx8m-plus"
+
+# Single-person pose estimation on the i.MX8M Plus NPU (Vivante VIP9000). Any
+# NXP-BSP i.MX8MP board with a camera works; ucm-imx8m-plus is validated. A
+# display is optional -- the MJPEG web preview shows the skeleton headless.
+supported_targets:
+  - ucm-imx8m-plus
+
+distro:
+  release: 2024
+  channel: edge
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - config
+      - app
+    packages:
+      avocado-runtime: "*"
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "MoveNet INT8 single-person pose estimation on the i.MX8MP NPU (NNStreamer + TFLite VX-delegate)"
+    overlay: app/overlay
+    packages:
+      # MoveNet is quantized to per-tensor INT8 in-SDK (app-compile.sh) and the
+      # .tflite is copied into the extension sysroot by app-install.sh; app.py +
+      # the service ship in the overlay.
+      app:
+        compile: app
+        install: app-install.sh
+
+      # --- NPU inference stack (packagegroup-avocado-imx-ml; see kas/vendor/nxp.yml) ---
+      nnstreamer: "*"
+      nnstreamer-tensorflow-lite: "*"
+      nnstreamer-python3: "*"
+      tensorflow-lite-vx-delegate: "*"          # libvx_delegate.so -> tim-vx -> NPU
+      tim-vx: "*"
+
+      # --- GStreamer: camera -> square crop -> skeleton overlay -> (display | web) ---
+      gstreamer1.0: "*"
+      gstreamer1.0-plugins-base-videoconvertscale: "*"   # videoconvert + videoscale
+      gstreamer1.0-plugins-base-app: "*"                 # appsink (web MJPEG)
+      gstreamer1.0-plugins-good-video4linux2: "*"        # v4l2src (USB UVC webcam)
+      gstreamer1.0-plugins-good-videocrop: "*"           # aspectratiocrop (square crop)
+      gstreamer1.0-plugins-good-cairo: "*"               # cairooverlay (skeleton drawing)
+      gstreamer1.0-plugins-good-jpeg: "*"                # jpegenc (web MJPEG)
+      gstreamer1.0-plugins-bad-waylandsink: "*"          # waylandsink (HDMI display)
+
+      # --- Python: drive the pipeline + draw the skeleton ---
+      python3: "*"
+      python3-pygobject: "*"
+      python3-pycairo: "*"                       # cairo.Context for the draw callback
+      python3-numpy: "*"
+
+      # --- Camera + display ---
+      kernel-module-uvcvideo: "*"
+      v4l-utils: "*"
+      weston: "*"
+      weston-init: "*"
+
+    enable_services:
+      - imx8mp-npu-pose.service
+    on_merge:
+      - systemctl daemon-reload
+      - systemctl restart --no-block weston
+      - systemctl start --no-block imx8mp-npu-pose.service
+    on_unmerge:
+      - systemctl stop imx8mp-npu-pose.service
+
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+    # NOT FOR PRODUCTION: empty root password for bring-up convenience.
+    users:
+      root:
+        password: ""
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    app:
+      compile: app-compile.sh
+      clean: app-clean.sh
+
+  packages:
+    avocado-sdk-toolchain: "*"
+    # uv drives the in-SDK pip install of TensorFlow for INT8 quantization
+    # (TensorFlow is build-time-only; it is NOT installed on the target).
+    nativesdk-uv: "*"

@@ -1,0 +1,4 @@
+# Build-time artifacts (fetched model, calibration images, quant venv, output)
+app/build/
+.avocado/
+.avocado-state
