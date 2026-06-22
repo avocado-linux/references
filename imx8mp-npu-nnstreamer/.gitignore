@@ -1,0 +1,8 @@
+# Build artifacts: fetched calibration images, quantizer venv, generated model.
+app/build/
+.avocado/
+.avocado-state
+
+# Python bytecode cache
+__pycache__/
+*.pyc

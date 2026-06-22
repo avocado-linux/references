@@ -1,0 +1,146 @@
+cli_requirement: ">=0.26.0"
+
+default_target: "ucm-imx8m-plus"
+
+# The i.MX8M Plus NPU (Vivante VIP9000) reference. Any NXP-BSP i.MX8MP board
+# with a camera + display works; ucm-imx8m-plus is the validated one.
+supported_targets:
+  - ucm-imx8m-plus
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - config
+      - app
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "MobileNet INT8 camera classification on the i.MX8MP NPU via NNStreamer + TFLite VX-delegate"
+    overlay: app/overlay
+    packages:
+      # The INT8 model is quantized in-SDK (app-compile.sh) and copied into the
+      # extension sysroot by app-install.sh; app.py + the service ship in the
+      # overlay.
+      app:
+        compile: app
+        install: app-install.sh
+
+      # --- NPU inference stack (built into the feed by ---
+      # --- packagegroup-avocado-imx-ml; see kas/vendor/nxp.yml) ---
+      # nnstreamer GStreamer plugin (tensor_converter / _filter / _sink) + its
+      # TFLite sub-plugin. tensorflow-lite-vx-delegate ships libvx_delegate.so
+      # and RDEPENDS imx-gpu-viv (libOpenVX/libVSC) -> galcore -> VIP NPU.
+      # (No plain `tensorflow-lite` package exists in the i.MX feed -- the
+      # TFLite runtime is bundled into tensorflow-lite-vx-delegate /
+      # nnstreamer-tensorflow-lite, which are what we actually load.)
+      nnstreamer: "*"
+      nnstreamer-tensorflow-lite: "*"
+      nnstreamer-python3: "*"
+      tensorflow-lite-vx-delegate: "*"
+      tim-vx: "*"
+
+      # --- GStreamer camera -> (display | web MJPEG) + inference pipeline ---
+      # The i.MX gstreamer recipes ship only per-plugin split packages (no
+      # umbrella gstreamer1.0-plugins-base/-good). List exactly what the
+      # pipeline uses; tee/queue/capsfilter are in the gstreamer1.0 core.
+      gstreamer1.0: "*"
+      gstreamer1.0-plugins-base-videoconvertscale: "*"   # videoconvert + videoscale
+      gstreamer1.0-plugins-base-pango: "*"               # textoverlay (label)
+      gstreamer1.0-plugins-base-app: "*"                 # appsink (web MJPEG preview)
+      gstreamer1.0-plugins-good-video4linux2: "*"        # v4l2src (USB UVC webcam)
+      gstreamer1.0-plugins-good-jpeg: "*"                # jpegenc (web MJPEG preview)
+      gstreamer1.0-plugins-bad-waylandsink: "*"          # waylandsink
+
+      # --- Python bindings to drive the pipeline ---
+      python3: "*"
+      python3-pygobject: "*"
+      python3-numpy: "*"
+
+      # --- Camera + display ---
+      kernel-module-uvcvideo: "*"                   # USB UVC webcam -> /dev/video0
+      v4l-utils: "*"
+      weston: "*"
+      weston-init: "*"
+
+    enable_services:
+      - imx8mp-npu-nnstreamer.service
+    on_merge:
+      - systemctl daemon-reload
+      - systemctl restart --no-block weston
+      - systemctl start --no-block imx8mp-npu-nnstreamer.service
+    on_unmerge:
+      - systemctl stop imx8mp-npu-nnstreamer.service
+
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+
+    # NOT FOR PRODUCTION: empty root password for bring-up convenience.
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    app:
+      compile: app-compile.sh
+      clean: app-clean.sh
+
+  packages:
+    avocado-sdk-toolchain: "*"
+    # uv drives the in-SDK pip install of TensorFlow for INT8 quantization
+    # (TensorFlow is a build-time-only dep; it is NOT installed on the target).
+    nativesdk-uv: "*"
