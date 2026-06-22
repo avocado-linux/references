@@ -28,7 +28,11 @@ Install the SDK toolchain, extension dependencies, and runtime packages:
 avocado install -f
 ```
 
-This pulls the SDK container image and installs `nativesdk-uv` for pip package compilation. Runtime packages include TensorRT (`python3-tensorrt`, `tensorrt-core`), the CUDA Python bindings (`python3-cuda`), cuDNN, OpenCV (used for image pre/post-processing only), GStreamer plugins, and the UVC camera driver.
+This pulls the SDK container image and resolves the runtime packages across the extensions. The dependency layer (`vision-runtime`) includes TensorRT (`python3-tensorrt`, `tensorrt-core`), the CUDA Python bindings (`python3-cuda`), cuDNN, OpenCV (used for image pre/post-processing only), the NVIDIA GStreamer plugins, the UVC camera driver, and Python + PyGObject + Flask — all from the feed, no vendored pip packages.
+
+### Extension layout
+
+The pipeline is split across four extensions so an OTA only re-ships what changed — see the README's [Extension layout](README.md#extension-layout) table. In short: `vision-runtime` (deps), `vision-models` (the ONNX), `vision-engines` (the prebuilt TensorRT engine), and `vision-app` (the code, plus its tunables in `app.service`).
 
 ## Build
 
@@ -38,7 +42,7 @@ Build the extensions and assemble the runtime image:
 avocado build
 ```
 
-The build step runs `app-compile.sh` inside the SDK container, which uses `uv pip install` to download Flask. The YOLO11n model (`yolo11n.onnx`) is already checked into the overlay at `app/overlay/usr/lib/app/models/`. Then `app-install.sh` copies the packages into the extension sysroot.
+The build composes each extension. Each one ships as a plain overlay — the YOLO11n model from `vision-models/overlay/usr/lib/app/models/`, the prebuilt TensorRT engine from `vision-engines/overlay/usr/lib/app/engines/`, and the application code from `vision-app/overlay/`. There is no pip/compile step — Flask and the rest come from the feed via `vision-runtime`.
 
 ## Deploy
 
@@ -50,7 +54,7 @@ avocado provision -r dev
 
 ## Verify
 
-Log in as `root` with an empty password. The reference ships a **prebuilt FP16 TensorRT engine** (`app/overlay/usr/lib/app/engines/yolo11n.onnx.fp16.engine`), so the app starts detecting immediately — no on-device compile wait.
+Log in as `root` with an empty password. The reference ships a **prebuilt FP16 TensorRT engine** (committed in the `vision-engines` overlay and shipped read-only to `/usr/lib/app/engines/`), so the app starts detecting immediately — no on-device compile wait.
 
 `yolo-engine-build.service` still runs at boot but is a near-instant no-op while the prebuilt engine is present. It only compiles an engine when there isn't one for the active model — e.g. you swap to `yolo11s`, or the embedded engine fails to load after a TensorRT version bump in the feed (in which case the app rebuilds it on-device automatically, a one-time ~few-minute cost that's then cached under `/var/lib/app`).
 
@@ -98,7 +102,7 @@ Check what your camera supports and adjust the settings:
 v4l2-ctl --list-formats-ext -d /dev/video0
 ```
 
-Edit the environment variables in `app/overlay/usr/lib/systemd/system/app.service`:
+Uncomment and edit the camera tunables in `vision-app/overlay/usr/lib/systemd/system/app.service`:
 
 ```ini
 Environment=CAMERA_DEVICE=/dev/video0
@@ -106,6 +110,9 @@ Environment=CAMERA_WIDTH=1280
 Environment=CAMERA_HEIGHT=720
 Environment=CAMERA_FRAMERATE=30
 ```
+
+On-device you can `systemctl edit app` to drop in an override and `systemctl
+restart app` for a quick test without rebuilding.
 
 ### Change the model
 
@@ -125,19 +132,35 @@ from ultralytics import YOLO
 model = YOLO('yolo11s.pt')
 model.export(format='onnx', opset=17)
 "
-cp yolo11s.onnx app/overlay/usr/lib/app/models/
+cp yolo11s.onnx vision-models/overlay/usr/lib/app/models/
 ```
 
-Point the app at the new file via the `MODEL_PATH` env var in `app.service` (or replace `yolo11n.onnx`). The engine filename is derived from the model name, so a new model triggers a fresh on-device engine build automatically. To force a rebuild after re-exporting the *same* filename, delete the cached engine: `rm /var/lib/app/*.engine`.
+Point the app at the new file via a `MODEL_PATH` Environment line in `app.service` (or just replace `yolo11n.onnx`). The engine filename is derived from the model name, so a new model has no prebuilt engine and triggers a fresh on-device build automatically — or commit a prebuilt one into `vision-engines/overlay/usr/lib/app/engines/` to keep first boot instant (see [Regenerating the engine](#regenerating-the-engine)). To force a rebuild after re-exporting the *same* filename, delete the cached engine: `rm /var/lib/app/*.engine`.
 
 ### Adjust detection sensitivity
 
-Edit `app/overlay/usr/local/bin/app.py`:
+Uncomment `CONFIDENCE_THRESHOLD` / `NMS_THRESHOLD` in `app.service`:
 
-```python
-CONFIDENCE_THRESHOLD = 0.3    # lower = more detections (default 0.5)
-NMS_THRESHOLD = 0.45          # non-maximum suppression threshold
+```ini
+Environment=CONFIDENCE_THRESHOLD=0.3    # lower = more detections (default 0.5)
+Environment=NMS_THRESHOLD=0.45          # non-maximum suppression threshold
 ```
+
+### Regenerating the engine
+
+A TensorRT engine is GPU- and TRT-version-specific, so it's built on matching
+hardware (the Orin Nano) and committed into the `vision-engines` overlay. To
+regenerate it (after swapping the model, or on a TensorRT bump), let the device
+build one and copy it back into the reference:
+
+```bash
+scp root@<device-ip>:/var/lib/app/<model>.onnx.fp16.engine \
+    vision-engines/overlay/usr/lib/app/engines/
+```
+
+The next `avocado build` ships it directly via the overlay. If you skip this,
+the on-device fallback still produces a working engine at first boot — it just
+costs a few minutes once.
 
 ### Rebuild after changes
 

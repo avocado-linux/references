@@ -17,6 +17,18 @@ distro:
 ##
 ## Runtimes
 ##
+## The vision pipeline is split across four cohesive extensions, each with a
+## single reason to change, so an OTA only re-ships the layer you actually
+## touched (see the README "Extension layout" section). systemd-sysext has no
+## inter-extension dependency mechanism, so this runtime's extension list IS the
+## contract: a working pipeline needs all four composed together.
+##
+##   vision-runtime — TensorRT/CUDA/OpenCV/GStreamer/Python deps (GB-scale)
+##   vision-models  — the YOLO ONNX weights
+##   vision-engines — the prebuilt TensorRT engine
+##   vision-app     — the application code (app.py + build_engine.py + units),
+##                    including its systemd-unit tunables
+##
 
 runtimes:
   dev:
@@ -25,7 +37,10 @@ runtimes:
       - avocado-ext-sshd-dev
       - avocado-bsp-{{ avocado.target.board }}
       - config
-      - app
+      - vision-runtime
+      - vision-models
+      - vision-engines
+      - vision-app
     packages:
       avocado-runtime: "*"
       kernel-modules: "*"
@@ -50,31 +65,45 @@ extensions:
       type: package
       version: "*"
 
-  app:
+  # ---------------------------------------------------------------------------
+  # vision-runtime — the platform layer (your DEPENDENCIES).
+  #
+  # The heavy, stable third-party stack the app runs on: TensorRT + the CUDA
+  # Python bindings, CUDA/cuDNN runtime libs, OpenCV (image pre/post-processing
+  # only — NOT inference), the NVIDIA GStreamer plugins, the UVC camera kernel
+  # module, and the Python interpreter + bindings + Flask the app imports. This
+  # is by far the largest extension (GB-scale once composed in) and only changes
+  # on a JetPack / TensorRT / CUDA bump. Isolating it here means a business-logic
+  # change to vision-app never re-ships any of these bytes over the air.
+  #
+  # sysext AND confext: the CUDA / TensorRT packages ship libraries under /usr
+  # (sysext) but ALSO drop /etc/ld.so.conf.d/*.conf entries (confext) that point
+  # ldconfig at the CUDA/TensorRT library directories. Without the confext those
+  # /etc entries are dropped, ldconfig never learns the paths, and the NVIDIA
+  # GStreamer plugins fail to dlopen their deps.
+  # ---------------------------------------------------------------------------
+  vision-runtime:
     types:
       - sysext
       - confext
     version: "0.1.0"
-    summary: "Python GStreamer YOLO object detection dashboard"
-    overlay: app/overlay
+    summary: "TensorRT/CUDA/OpenCV/GStreamer/Python runtime for the YOLO vision pipeline"
+
     packages:
-      app:
-        compile: app
-        install: app-install.sh
-      python3: "*"
-      python3-pygobject: "*"
-      python3-numpy: "*"
-      opencv: "*"
-      # GPU inference via TensorRT (engine built on-device from the ONNX at
-      # first boot). python3-tensorrt + python3-cuda give us the runtime API
-      # and CUDA memory/stream bindings; opencv above is used only for image
-      # pre/post-processing (blob, NMS, draw, JPEG), not inference.
+      # GPU inference via TensorRT + the CUDA memory/stream bindings.
       python3-tensorrt: "*"
       python3-cuda: "*"
       tensorrt-core: "*"
       tensorrt-plugins-prebuilt: "*"
       cudnn: "*"
       cuda-cudart: "*"
+
+      # OpenCV is used for image pre/post-processing (blob, NMS, draw, JPEG),
+      # NOT inference. Pinned to the 1.x-built numpy below for ABI compatibility.
+      opencv: "*"
+      python3-numpy: "*"
+
+      # GStreamer + NVIDIA-accelerated plugins used by the capture pipeline.
       gstreamer1.0: "*"
       gstreamer1.0-plugins-good-video4linux2: "*"
       gstreamer1.0-plugins-good-jpeg: "*"
@@ -83,30 +112,96 @@ extensions:
       gstreamer1.0-plugins-base-videoconvertscale: "*"
       gstreamer1.0-plugins-nvjpeg: "*"
       gstreamer1.0-plugins-nvvidconv: "*"
+
+      # Kernel module for USB UVC cameras.
       kernel-module-uvcvideo: "*"
+
+      # Python runtime + GStreamer bindings + Flask, from the feed (no vendored
+      # pip packages). These are dependencies, so they live here — not in
+      # vision-app — to keep the business-logic OTA kilobyte-sized.
+      python3: "*"
+      python3-pygobject: "*"
+      python3-flask: "*"
+
+      # Diagnostics / convenience on-device.
       v4l-utils: "*"
       curl: "*"
+
+  # ---------------------------------------------------------------------------
+  # vision-models — the model weights (target-agnostic).
+  #
+  # The YOLO11n ONNX. An ONNX is portable across GPUs, so it carries no target
+  # suffix. Ships read-only at /usr/lib/app/models/. Re-ships only when the
+  # model is retrained or swapped, independently of the runtime and the app.
+  # ---------------------------------------------------------------------------
+  vision-models:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "YOLO11n ONNX model weights"
+    overlay: vision-models/overlay
+
+    on_merge:
+      # Pick up a freshly-OTA'd model without a reboot (no-op if app not running).
+      - systemctl try-restart app.service
+
+  # ---------------------------------------------------------------------------
+  # vision-engines — the prebuilt TensorRT engine.
+  #
+  # A TensorRT engine is the compiled form of the ONNX, pinned to the GPU's
+  # compute capability + TRT/CUDA version, so it is specific to the Orin Nano
+  # this reference targets. It is committed directly in the overlay and ships
+  # read-only at /usr/lib/app/engines/ — a plain overlay extension, like
+  # vision-models. Re-ships only when the model or the engine changes.
+  #
+  # Unlike nvidia-deepstream, this reference also ships an on-device rebuild
+  # fallback (build_engine.py): if the embedded engine is absent or fails to
+  # deserialize (e.g. a TensorRT bump), or the model is swapped, the app
+  # compiles one from the ONNX into /var at boot. Committing the engine is what
+  # makes first boot instant.
+  # ---------------------------------------------------------------------------
+  vision-engines:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "Prebuilt TensorRT FP16 engine"
+    overlay: vision-engines/overlay
+
+    on_merge:
+      - systemctl try-restart app.service
+
+  # ---------------------------------------------------------------------------
+  # vision-app — the application (your CODE).
+  #
+  # app.py, build_engine.py, and the two systemd units. No packages: every
+  # dependency comes from vision-runtime. This is the extension an application
+  # engineer edits day to day, and after the split it is the only thing that
+  # re-ships on a logic change — a kilobyte-scale OTA. The camera / detection /
+  # server tunables live here too, as Environment lines in app.service.
+  # ---------------------------------------------------------------------------
+  vision-app:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "Python GStreamer YOLO object detection dashboard"
+    overlay: vision-app/overlay
+
     enable_services:
       - yolo-engine-build.service
       - app.service
+
     on_merge:
       - systemctl restart --no-block app.service
+
     on_unmerge:
       - systemctl stop app.service
 
-    sdk:
-      packages:
-        nativesdk-uv: "*"
-
-  # Generated default config extension
-  # Use or modify this to configure "real" user accounts (passwd, shadow, group)
-  # or configure other system services
+  # Generated default config extension.
+  # NOT FOR PRODUCTION: empty root password to keep the verify step simple.
   config:
     types:
       - confext
     version: "0.1.0"
-
-    # NOT FOR PRODUCTION: Set root password to empty string
     users:
       root:
         password: ""
@@ -114,25 +209,6 @@ extensions:
 ##
 ## SDK
 ##
-
-
-  avocado-ext-connect-config:
-    types:
-      - confext
-    version: "0.1.0"
-    overlay: overlay
-
-
-  avocado-ext-connect:
-    source:
-      type: package
-      version: "*"
-
-
-  avocado-ext-tunnels:
-    source:
-      type: package
-      version: "*"
 
 sdk:
   image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
@@ -143,11 +219,5 @@ sdk:
     - -v /dev:/dev
     - -v /sys:/sys
 
-  compile:
-    app:
-      compile: app-compile.sh
-      clean: app-clean.sh
-
   packages:
     avocado-sdk-toolchain: "*"
-

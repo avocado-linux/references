@@ -9,16 +9,23 @@ Wants=yolo-engine-build.service
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /usr/local/bin/app.py
-Restart=on-failure
-RestartSec=5
 
-# Camera configuration — adjust for your webcam.
-# Run `v4l2-ctl --list-formats-ext -d /dev/video0` to see supported formats.
+# Camera / detection / server tunables. app.py has a built-in default for each,
+# so all of these are optional — uncomment and adjust to override. On-device,
+# `systemctl edit app` writes a drop-in so you can change them without touching
+# this unit. Run `v4l2-ctl --list-formats-ext -d /dev/video0` for camera modes.
 #Environment=CAMERA_DEVICE=/dev/video0
 #Environment=CAMERA_WIDTH=1280
 #Environment=CAMERA_HEIGHT=720
 #Environment=CAMERA_FRAMERATE=30
+#Environment=CONFIDENCE_THRESHOLD=0.5
+#Environment=NMS_THRESHOLD=0.45
+#Environment=PORT=5000
+#Environment=LOG_LEVEL=INFO
+
+ExecStart=/usr/bin/python3 /usr/local/bin/app.py
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
