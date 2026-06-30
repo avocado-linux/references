@@ -2,6 +2,7 @@
 language: Python
 targets:
   - jetson-orin-nano-devkit
+  - jetson-agx-orin-devkit
 topics:
   - vision
   - ai
@@ -56,3 +57,11 @@ rebuild fallback (`build_engine.py` + `yolo-engine-build.service`): if the
 committed engine is missing, fails to load after a TensorRT bump, or the model
 is swapped, the device compiles one from the ONNX at boot and caches it in
 `/var`.
+
+The committed engine is built for the **Orin Nano**, and the overlay ships to
+every supported target. On the **AGX Orin** that engine won't deserialize, so
+the fallback compiles a correct one on first boot (a one-time, few-minute cost,
+then cached). Shipping a prebuilt engine for *each* target — for instant first
+boot on both — means reintroducing per-target engine staging (an
+`$AVOCADO_TARGET`-keyed source dir + a build-time staging hook), which is the
+tradeoff this reference currently leaves on the table for simplicity.

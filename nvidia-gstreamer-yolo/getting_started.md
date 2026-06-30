@@ -7,9 +7,15 @@ This guide walks you through building and running the YOLO object detection refe
 - macOS 10.12+ or Linux (Ubuntu 22.04+, Fedora 39+)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
 - The latest version of the [Avocado CLI](https://docs.peridio.com/guides/avocado-cli/overview)
-- NVIDIA Jetson Orin Nano Developer Kit
+- An NVIDIA Jetson Orin board: **Orin Nano Developer Kit** (default) or **AGX Orin Developer Kit**
 - USB (UVC) camera (e.g., Opal Tadpole)
 - SD card or USB cable for flashing
+
+To target the AGX Orin, pass `--target jetson-agx-orin-devkit` to the `avocado`
+commands below. The committed TensorRT engine is built for the Orin Nano, so on
+the AGX the on-device fallback compiles a matching engine on first boot (a
+one-time, few-minute cost, then cached) — the dashboard comes up automatically
+once it finishes.
 
 ## Initialize
 
