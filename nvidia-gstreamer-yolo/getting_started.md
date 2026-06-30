@@ -6,7 +6,7 @@ This guide walks you through building and running the YOLO object detection refe
 
 - macOS 10.12+ or Linux (Ubuntu 22.04+, Fedora 39+)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
-- The latest version of the [Avocado CLI](https://docs.peridio.com/guides/avocado-cli/overview)
+- The latest version of the [Avocado CLI](https://docs.peridio.com/developer-reference/avocado-cli/overview)
 - An NVIDIA Jetson Orin board: **Orin Nano Developer Kit** (default) or **AGX Orin Developer Kit**
 - USB (UVC) camera (e.g., Opal Tadpole)
 - SD card or USB cable for flashing
@@ -38,7 +38,7 @@ This pulls the SDK container image and resolves the runtime packages across the 
 
 ### Extension layout
 
-The pipeline is split across four extensions so an OTA only re-ships what changed — see the README's [Extension layout](README.md#extension-layout) table. In short: `vision-runtime` (deps), `vision-models` (the ONNX), `vision-engines` (the prebuilt TensorRT engine), and `vision-app` (the code, plus its tunables in `app.service`).
+The pipeline is split across four extensions so an OTA only re-ships what changed — see the README's [Extension layout](https://github.com/avocado-linux/references/blob/main/nvidia-gstreamer-yolo/README.md#extension-layout) table. In short: `vision-runtime` (deps), `vision-models` (the ONNX), `vision-engines` (the prebuilt TensorRT engine), and `vision-app` (the code, plus its tunables in `app.service`).
 
 ## Build
 
