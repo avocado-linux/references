@@ -48,9 +48,6 @@ runtimes:
       - vision-models
       - vision-engines
       - vision-app
-      - avocado-ext-connect-config
-      - avocado-ext-connect
-      - avocado-ext-tunnels
     packages:
       avocado-runtime: "*"
       kernel-modules: "*"
@@ -222,25 +219,6 @@ extensions:
 ## SDK
 ##
 
-
-  avocado-ext-connect-config:
-    types:
-      - confext
-    version: "0.1.0"
-    overlay: overlay
-
-
-  avocado-ext-connect:
-    source:
-      type: package
-      version: "*"
-
-
-  avocado-ext-tunnels:
-    source:
-      type: package
-      version: "*"
-
 sdk:
   image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
 
@@ -252,8 +230,3 @@ sdk:
 
   packages:
     avocado-sdk-toolchain: "*"
-
-connect:
-  org: ***REMOVED***
-  project: ***REMOVED***
-  server_key: ***REMOVED***
