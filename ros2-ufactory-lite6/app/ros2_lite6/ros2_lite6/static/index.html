@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Lite 6 Controller</title>
+  <style>
+    :root {
+      --bg: #0f1115;
+      --panel: #1a1d24;
+      --panel-2: #232832;
+      --line: #2d3340;
+      --fg: #e6e8ee;
+      --muted: #8a92a4;
+      --accent: #26a69a;
+      --accent-2: #4dd0c2;
+      --warn: #f59e0b;
+      --bad: #ef4444;
+      --good: #10b981;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 14px;
+    }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    header {
+      position: sticky; top: 0; z-index: 10;
+      display: grid; grid-template-columns: 1fr auto;
+      align-items: center;
+      padding: 14px 20px; gap: 16px;
+      background: var(--panel); border-bottom: 1px solid var(--line);
+    }
+    header .title { display: flex; align-items: center; gap: 12px; }
+    header h1 { margin: 0; font-size: 16px; letter-spacing: 0.4px; }
+    .conn-dot {
+      display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+      background: var(--muted);
+    }
+    .conn-dot.ok { background: var(--good); }
+    .conn-dot.mock { background: var(--warn); }
+    .conn-dot.bad { background: var(--bad); }
+    .conn-text { color: var(--muted); font-size: 12px; }
+    button.estop {
+      background: var(--bad); color: white; border: 0;
+      padding: 14px 28px; border-radius: 8px;
+      font-weight: 700; font-size: 16px; letter-spacing: 0.4px;
+      cursor: pointer; box-shadow: 0 2px 0 #7a1212;
+    }
+    button.estop:active { transform: translateY(1px); box-shadow: none; }
+    main {
+      max-width: 1000px; margin: 0 auto; padding: 20px;
+      display: grid; gap: 16px;
+    }
+    section {
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 8px; padding: 16px;
+    }
+    section h2 {
+      margin: 0 0 12px; font-size: 12px; letter-spacing: 1px;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 720px) { .grid-2 { grid-template-columns: 1fr; } }
+    .kv {
+      display: grid; grid-template-columns: 90px 1fr;
+      gap: 6px 10px; align-items: center;
+    }
+    .kv .k { color: var(--muted); font-size: 12px; }
+    .kv .v { font-feature-settings: "tnum"; }
+    .row {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    button {
+      background: var(--panel-2); color: var(--fg); border: 1px solid var(--line);
+      padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+    }
+    button:hover { border-color: var(--accent); }
+    button:active { background: var(--accent); border-color: var(--accent); color: #000; }
+    button.primary { background: var(--accent); color: #000; border-color: var(--accent); }
+    button.primary:hover { background: var(--accent-2); border-color: var(--accent-2); }
+    button.warn { background: var(--warn); color: #000; border-color: var(--warn); }
+    .jog-grid {
+      display: grid; grid-template-columns: 28px 1fr 80px 60px;
+      align-items: center; gap: 6px 10px;
+    }
+    .jog-grid label { color: var(--muted); }
+    input[type=range] { width: 100%; }
+    input[type=number], input[type=text] {
+      background: var(--bg); color: var(--fg); border: 1px solid var(--line);
+      padding: 6px 8px; border-radius: 4px; width: 100%;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    .cart-grid {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px;
+    }
+    .cart-grid label { display: block; font-size: 11px; color: var(--muted); }
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 600;
+      background: var(--panel-2); color: var(--muted);
+    }
+    .badge.err { background: rgba(239,68,68,0.15); color: var(--bad); }
+    .badge.warn { background: rgba(245,158,11,0.15); color: var(--warn); }
+    .badge.ok { background: rgba(16,185,129,0.15); color: var(--good); }
+    .toast {
+      position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+      background: var(--panel-2); color: var(--fg);
+      border: 1px solid var(--line); padding: 10px 16px; border-radius: 6px;
+      font-size: 13px; opacity: 0; transition: opacity 0.2s;
+      pointer-events: none; max-width: 80%;
+    }
+    .toast.show { opacity: 1; }
+    .toast.bad { border-color: var(--bad); color: var(--bad); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="title">
+      <h1>Lite 6 Controller</h1>
+      <span id="conn-dot" class="conn-dot"></span>
+      <span id="conn-text" class="conn-text">connecting…</span>
+    </div>
+    <button class="estop" onclick="post('/estop')">E-STOP</button>
+  </header>
+
+  <main>
+    <!-- LIVE STATUS -->
+    <section>
+      <h2>Status</h2>
+      <div class="grid-2">
+        <div>
+          <div class="kv">
+            <div class="k">IP</div>           <div class="v mono" id="st-ip">—</div>
+            <div class="k">Mode</div>         <div class="v mono"><span id="st-mode">—</span></div>
+            <div class="k">State</div>        <div class="v mono"><span id="st-state">—</span></div>
+            <div class="k">Error</div>        <div class="v"><span id="st-err" class="badge">—</span></div>
+            <div class="k">Warn</div>         <div class="v"><span id="st-warn" class="badge">—</span></div>
+            <div class="k">Gripper</div>      <div class="v"><span id="st-gripper" class="badge">—</span></div>
+          </div>
+        </div>
+        <div>
+          <div class="kv">
+            <div class="k">J1..J6</div>       <div class="v mono" id="st-joints">—</div>
+            <div class="k">x y z (mm)</div>   <div class="v mono" id="st-xyz">—</div>
+            <div class="k">r p y (°)</div>    <div class="v mono" id="st-rpy">—</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SEQUENCES -->
+    <section>
+      <h2>Sequences</h2>
+      <div class="row">
+        <button onclick="post('/home')">Home</button>
+        <button onclick="post('/wave')">Wave</button>
+        <button onclick="post('/nod')">Nod</button>
+        <button onclick="post('/present')">Present</button>
+        <button onclick="post('/scan')">Scan</button>
+        <button onclick="post('/dance')">Dance</button>
+        <button onclick="post('/square')">Square</button>
+        <button onclick="openPickPlace()">Pick &amp; Place…</button>
+      </div>
+    </section>
+
+    <!-- GRIPPER -->
+    <section>
+      <h2>Gripper</h2>
+      <div class="row">
+        <button onclick="post('/gripper/open')">Open</button>
+        <button onclick="post('/gripper/close')">Close</button>
+        <button onclick="post('/gripper/stop')">Stop</button>
+      </div>
+    </section>
+
+    <!-- MANUAL JOG -->
+    <section>
+      <h2>Manual jog</h2>
+      <div class="grid-2">
+        <div>
+          <div style="color:var(--muted); font-size: 11px; margin-bottom: 8px;">JOINT (deg)</div>
+          <div id="joint-jog" class="jog-grid"></div>
+          <div class="row" style="margin-top: 10px;">
+            <input type="number" id="joint-speed" value="30" min="1" max="120" style="width:90px;">
+            <span style="align-self:center; color: var(--muted); font-size: 11px;">deg/s</span>
+            <button class="primary" onclick="doMoveJoint()">Move joints</button>
+          </div>
+        </div>
+        <div>
+          <div style="color:var(--muted); font-size: 11px; margin-bottom: 8px;">CARTESIAN (mm + deg)</div>
+          <div class="cart-grid">
+            <div><label>x</label><input type="number" id="cart-x" value="250"></div>
+            <div><label>y</label><input type="number" id="cart-y" value="0"></div>
+            <div><label>z</label><input type="number" id="cart-z" value="250"></div>
+            <div><label>roll</label><input type="number" id="cart-roll" value="180"></div>
+            <div><label>pitch</label><input type="number" id="cart-pitch" value="0"></div>
+            <div><label>yaw</label><input type="number" id="cart-yaw" value="0"></div>
+          </div>
+          <div class="row" style="margin-top: 10px;">
+            <input type="number" id="cart-speed" value="100" min="1" max="400" style="width:90px;">
+            <span style="align-self:center; color: var(--muted); font-size: 11px;">mm/s</span>
+            <button class="primary" onclick="doMoveLine()">Move linear</button>
+            <button onclick="copyCurrentPose()">Copy current</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PICK & PLACE FORM (hidden by default) -->
+    <section id="pp-section" style="display:none;">
+      <h2>Pick &amp; Place</h2>
+      <div class="grid-2">
+        <div>
+          <div style="color:var(--muted); font-size: 11px; margin-bottom: 8px;">SOURCE (grasp pose)</div>
+          <div class="cart-grid">
+            <div><label>x</label><input type="number" id="pp-src-x" value="250"></div>
+            <div><label>y</label><input type="number" id="pp-src-y" value="100"></div>
+            <div><label>z</label><input type="number" id="pp-src-z" value="120"></div>
+          </div>
+        </div>
+        <div>
+          <div style="color:var(--muted); font-size: 11px; margin-bottom: 8px;">DESTINATION (release pose)</div>
+          <div class="cart-grid">
+            <div><label>x</label><input type="number" id="pp-dst-x" value="250"></div>
+            <div><label>y</label><input type="number" id="pp-dst-y" value="-100"></div>
+            <div><label>z</label><input type="number" id="pp-dst-z" value="120"></div>
+          </div>
+        </div>
+      </div>
+      <div class="row" style="margin-top: 10px;">
+        <div><label style="font-size:11px;color:var(--muted)">hover (mm)</label>
+             <input type="number" id="pp-hover" value="80" style="width:90px;"></div>
+        <div><label style="font-size:11px;color:var(--muted)">travel (mm/s)</label>
+             <input type="number" id="pp-travel" value="200" style="width:90px;"></div>
+        <div><label style="font-size:11px;color:var(--muted)">approach (mm/s)</label>
+             <input type="number" id="pp-approach" value="60" style="width:90px;"></div>
+        <button class="primary" style="align-self:flex-end;" onclick="doPickPlace()">Run pick &amp; place</button>
+      </div>
+    </section>
+
+    <!-- DIAGNOSTICS -->
+    <section>
+      <h2>Diagnostics</h2>
+      <div class="row">
+        <button onclick="post('/clear')">Clear faults</button>
+        <span class="conn-text" style="align-self:center;">
+          run after any collision / joint-limit fault to re-enable motion
+        </span>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    // ----- helpers --------------------------------------------------------
+    let lastPose = null;
+    let lastJoints = null;
+
+    function showToast(msg, bad) {
+      const t = document.getElementById("toast");
+      t.textContent = msg;
+      t.className = "toast show" + (bad ? " bad" : "");
+      clearTimeout(showToast._h);
+      showToast._h = setTimeout(() => t.className = "toast", 1800);
+    }
+
+    async function post(path, body) {
+      try {
+        const resp = await fetch(path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+        if (!resp.ok) {
+          const text = await resp.text();
+          showToast(`${path}: ${resp.status} ${text}`, true);
+          return null;
+        }
+        const data = await resp.json();
+        showToast(`${path} ✓`);
+        return data;
+      } catch (e) {
+        showToast(`${path}: ${e}`, true);
+        return null;
+      }
+    }
+
+    // ----- status polling -------------------------------------------------
+    async function pollStatus() {
+      try {
+        const resp = await fetch("/status");
+        if (!resp.ok) throw new Error(resp.status);
+        const s = await resp.json();
+
+        const dot = document.getElementById("conn-dot");
+        const txt = document.getElementById("conn-text");
+        if (s.mock) {
+          dot.className = "conn-dot mock";
+          txt.textContent = "mock";
+        } else if (s.connected) {
+          dot.className = "conn-dot ok";
+          txt.textContent = "connected";
+        } else {
+          dot.className = "conn-dot bad";
+          txt.textContent = "disconnected";
+        }
+
+        document.getElementById("st-ip").textContent = s.ip;
+        document.getElementById("st-mode").textContent = s.robot_mode;
+        document.getElementById("st-state").textContent = s.state;
+
+        const errBadge = document.getElementById("st-err");
+        errBadge.textContent = s.error_code;
+        errBadge.className = "badge" + (s.error_code > 0 ? " err" : (s.error_code === 0 ? " ok" : ""));
+
+        const warnBadge = document.getElementById("st-warn");
+        warnBadge.textContent = s.warn_code;
+        warnBadge.className = "badge" + (s.warn_code > 0 ? " warn" : (s.warn_code === 0 ? " ok" : ""));
+
+        const gripBadge = document.getElementById("st-gripper");
+        gripBadge.textContent = s.gripper;
+        gripBadge.className = "badge" + (s.gripper === "open" || s.gripper === "closed" ? " ok" : "");
+
+        lastJoints = s.joints_deg;
+        document.getElementById("st-joints").textContent =
+          s.joints_deg.map(j => j.toFixed(1).padStart(7)).join(" ");
+
+        lastPose = s.pose;
+        if (s.pose && "x" in s.pose) {
+          document.getElementById("st-xyz").textContent =
+            `${s.pose.x.toFixed(1).padStart(7)}  ${s.pose.y.toFixed(1).padStart(7)}  ${s.pose.z.toFixed(1).padStart(7)}`;
+          document.getElementById("st-rpy").textContent =
+            `${s.pose.roll.toFixed(1).padStart(7)}  ${s.pose.pitch.toFixed(1).padStart(7)}  ${s.pose.yaw.toFixed(1).padStart(7)}`;
+        }
+      } catch (e) {
+        const dot = document.getElementById("conn-dot");
+        const txt = document.getElementById("conn-text");
+        dot.className = "conn-dot bad";
+        txt.textContent = "status fetch failed";
+      }
+    }
+    setInterval(pollStatus, 200);
+    pollStatus();
+
+    // ----- joint jog sliders ---------------------------------------------
+    (function buildJointJog() {
+      const root = document.getElementById("joint-jog");
+      for (let i = 1; i <= 6; ++i) {
+        const lab = document.createElement("label");
+        lab.textContent = `J${i}`;
+        const range = document.createElement("input");
+        range.type = "range"; range.min = -180; range.max = 180; range.value = 0;
+        range.id = `jog-${i}`;
+        const num = document.createElement("input");
+        num.type = "number"; num.min = -180; num.max = 180; num.value = 0;
+        num.id = `jog-${i}-num`;
+        range.oninput = () => { num.value = range.value; };
+        num.oninput  = () => { range.value = num.value; };
+        const useCurrent = document.createElement("button");
+        useCurrent.textContent = "↺";
+        useCurrent.title = "use current";
+        useCurrent.onclick = () => {
+          if (!lastJoints) return;
+          num.value = lastJoints[i-1].toFixed(2);
+          range.value = lastJoints[i-1];
+        };
+        root.appendChild(lab); root.appendChild(range);
+        root.appendChild(num); root.appendChild(useCurrent);
+      }
+    })();
+
+    function doMoveJoint() {
+      const angles = [];
+      for (let i = 1; i <= 6; ++i) {
+        angles.push(parseFloat(document.getElementById(`jog-${i}-num`).value) || 0);
+      }
+      const speed = parseFloat(document.getElementById("joint-speed").value) || 30;
+      post("/move/joint", { angles_deg: angles, speed_deg_s: speed });
+    }
+
+    function doMoveLine() {
+      const body = {
+        x: parseFloat(document.getElementById("cart-x").value) || 0,
+        y: parseFloat(document.getElementById("cart-y").value) || 0,
+        z: parseFloat(document.getElementById("cart-z").value) || 0,
+        roll:  parseFloat(document.getElementById("cart-roll").value)  || 0,
+        pitch: parseFloat(document.getElementById("cart-pitch").value) || 0,
+        yaw:   parseFloat(document.getElementById("cart-yaw").value)   || 0,
+        speed: parseFloat(document.getElementById("cart-speed").value) || 100,
+      };
+      post("/move/line", body);
+    }
+
+    function copyCurrentPose() {
+      if (!lastPose) return;
+      document.getElementById("cart-x").value = lastPose.x.toFixed(2);
+      document.getElementById("cart-y").value = lastPose.y.toFixed(2);
+      document.getElementById("cart-z").value = lastPose.z.toFixed(2);
+      document.getElementById("cart-roll").value  = lastPose.roll.toFixed(2);
+      document.getElementById("cart-pitch").value = lastPose.pitch.toFixed(2);
+      document.getElementById("cart-yaw").value   = lastPose.yaw.toFixed(2);
+    }
+
+    function openPickPlace() {
+      const s = document.getElementById("pp-section");
+      s.style.display = s.style.display === "none" ? "" : "none";
+      s.scrollIntoView({ behavior: "smooth" });
+    }
+
+    function doPickPlace() {
+      const body = {
+        source_x: parseFloat(document.getElementById("pp-src-x").value),
+        source_y: parseFloat(document.getElementById("pp-src-y").value),
+        source_z: parseFloat(document.getElementById("pp-src-z").value),
+        dest_x:   parseFloat(document.getElementById("pp-dst-x").value),
+        dest_y:   parseFloat(document.getElementById("pp-dst-y").value),
+        dest_z:   parseFloat(document.getElementById("pp-dst-z").value),
+        hover_clearance_mm: parseFloat(document.getElementById("pp-hover").value),
+        travel_speed:       parseFloat(document.getElementById("pp-travel").value),
+        approach_speed:     parseFloat(document.getElementById("pp-approach").value),
+      };
+      post("/pick_and_place", body);
+    }
+  </script>
+</body>
+</html>

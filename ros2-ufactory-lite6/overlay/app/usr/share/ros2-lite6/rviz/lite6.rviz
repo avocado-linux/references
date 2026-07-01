@@ -1,0 +1,58 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+  - Class: rviz_common/Views
+    Name: Views
+Visualization Manager:
+  Class: ""
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Enabled: true
+      Name: Grid
+      Cell Size: 0.1
+      Line Style:
+        Value: Lines
+      Plane: XY
+      Reference Frame: <Fixed Frame>
+
+    - Class: rviz_default_plugins/RobotModel
+      Enabled: true
+      Name: RobotModel
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+        Depth: 5
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 1.0
+      Visual Enabled: true
+
+    - Class: rviz_default_plugins/TF
+      Enabled: true
+      Name: TF
+      Show Arrows: true
+      Show Axes: true
+      Show Names: true
+      Frame Timeout: 15
+      Marker Scale: 0.3
+      Update Interval: 0
+
+  Global Options:
+    Background Color: 30; 30; 30
+    Fixed Frame: world
+  Tools:
+    - Class: rviz_default_plugins/MoveCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 1.0
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0.35
+      Pitch: 0.5
+      Target Frame: world
+      Yaw: 0.8
+Window Geometry:
+  Height: 800
+  Width: 1200
