@@ -1,0 +1,4 @@
+.avocado/
+.avocado-state
+.avocado-desktop.json
+overlay/app/usr/lib/container-app/lite6.tar

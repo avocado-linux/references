@@ -1,0 +1,11 @@
+[Match]
+Name=eth0 end0 enP*
+
+[Network]
+DHCP=yes
+LLMNR=yes
+IPv6AcceptRA=yes
+
+[DHCPv4]
+UseDNS=yes
+UseRoutes=yes

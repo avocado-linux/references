@@ -1,0 +1,24 @@
+[Unit]
+Description=ROS 2 Lite 6 Controller
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+TimeoutStartSec=600
+EnvironmentFile=-/etc/container-app/container-app.env
+ExecStartPre=-/usr/bin/docker rm -f ros2-lite6
+ExecStartPre=/usr/bin/docker load -i /usr/lib/container-app/lite6.tar
+ExecStart=/usr/bin/docker run --rm --name ros2-lite6 \
+  --network=host \
+  --env LITE6_IP=${LITE6_IP} \
+  --env LITE6_AUTOSTART_SEQUENCE=${LITE6_AUTOSTART_SEQUENCE} \
+  --env ROS_DOMAIN_ID=${ROS_DOMAIN_ID} \
+  --env RMW_IMPLEMENTATION=rmw_cyclonedds_cpp \
+  lite6-ros2:latest
+ExecStop=/usr/bin/docker stop ros2-lite6
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
