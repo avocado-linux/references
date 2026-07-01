@@ -9,7 +9,7 @@ The container runs a full ROS 2 graph: `robot_state_publisher` broadcasts TF tra
 - macOS 10.12+ or Linux (Ubuntu 22.04+, Fedora 39+)
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) or a working local Docker daemon
 - The latest [Avocado CLI](https://docs.peridio.com/guides/avocado-cli/overview)
-- A supported target: any NXP i.MX (`imx8mp-evk`, `imx91-frdm`, `imx93-evk`, `imx93-frdm`) or `raspberrypi5`. NVIDIA Jetson targets are covered by the sibling `ros2-ufactory-lite6-jetson` reference.
+- A supported target — see `supported_targets` in `avocado.yaml` for the full list. All are arm64; this guide's commands use any NXP i.MX or `raspberrypi5`, and the rest follow the same flow.
 - A UFactory Lite 6 robot arm with its control box powered on and on Ethernet
 - A switch (or any router with a built-in switch) for the device, arm, and your laptop to share
 

@@ -12,8 +12,6 @@ supported_targets:
   - stm32mp257f-dk
   - rubikpi3
   - grinn-astra-1680-sbc
-  - intel-x86-64-v2
-  - intel-x86-64-v3
 
 ##
 ## Distribution

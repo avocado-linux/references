@@ -6,6 +6,10 @@ targets:
   - imx93-evk
   - imx93-frdm
   - raspberrypi5
+  - rzv2n-sr-som
+  - stm32mp257f-dk
+  - rubikpi3
+  - grinn-astra-1680-sbc
 topics:
   - container
   - docker
@@ -24,4 +28,3 @@ A reference runtime that drives a [UFactory Lite 6](https://www.ufactory.cc/lite
 - ROS 2 messaging output (`/joint_states` at 30 Hz) for RViz / external nodes on the same LAN
 - Foxglove Bridge on port 8765 — visualize the live robot model and topics from a browser, no ROS 2 install required
 - Mock mode (`LITE6_IP=mock`) lets you evaluate everything without owning the arm
-- Sibling reference: [`ros2-ufactory-lite6-jetson`](../ros2-ufactory-lite6-jetson/) — same arm, NVIDIA Jetson, `nvidia-docker`, optional vision augmentation
