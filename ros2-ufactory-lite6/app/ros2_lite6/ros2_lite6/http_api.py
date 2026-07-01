@@ -161,7 +161,7 @@ def build_app(arm: ArmController) -> FastAPI:
             travel_speed=req.travel_speed,
             approach_speed=req.approach_speed,
         )
-        return {"accepted": req.dict()}
+        return {"accepted": req.model_dump()}
 
     # ----------------------------------------------------------------------
     # Motion primitives
@@ -174,12 +174,12 @@ def build_app(arm: ArmController) -> FastAPI:
             roll=req.roll, pitch=req.pitch, yaw=req.yaw,
             speed=req.speed,
         )
-        return {"accepted": req.dict()}
+        return {"accepted": req.model_dump()}
 
     @app.post("/move/joint")
     def move_joint(req: MoveJointRequest) -> dict:
         _run_threaded(arm.set_servo_angle, req.angles_deg, req.speed_deg_s)
-        return {"accepted": req.dict()}
+        return {"accepted": req.model_dump()}
 
     # Backwards-compatible alias for /move (existing curl examples).
     @app.post("/move")
@@ -215,7 +215,7 @@ def build_app(arm: ArmController) -> FastAPI:
     @app.post("/tcp_offset")
     def tcp_offset(req: TcpOffsetRequest) -> dict:
         arm.set_tcp_offset(req.x, req.y, req.z, req.roll, req.pitch, req.yaw)
-        return {"accepted": req.dict()}
+        return {"accepted": req.model_dump()}
 
     # ----------------------------------------------------------------------
     # Safety
