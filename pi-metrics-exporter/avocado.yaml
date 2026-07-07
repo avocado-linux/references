@@ -1,0 +1,92 @@
+default_target: "raspberrypi4"
+
+supported_targets:
+  - raspberrypi0-2w
+  - raspberrypi4
+  - raspberrypi5
+
+distro:
+  release: 2024
+  channel: edge
+
+runtimes:
+  dev:
+    packages:
+      avocado-runtime: '*'
+    extensions:
+      - pi-metrics
+      - config-dev
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: '*'
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: '*'
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: '*'
+
+  config-dev:
+    version: 0.1.0
+
+    users:
+      root:
+        password: ''
+
+  pi-metrics:
+    version: 0.1.0
+
+    overlay: overlay
+
+    enable_services:
+      - pi-metrics.service
+
+    on_merge:
+      - systemctl restart --no-block pi-metrics.service
+
+    on_unmerge:
+      - systemctl stop pi-metrics.service
+
+    packages:
+      pi-metrics-app:
+        compile: pi-metrics-app
+        install: rust-install.sh
+
+    sdk:
+      packages:
+        nativesdk-binutils: '*'
+        nativesdk-cargo: '*'
+        nativesdk-gcc: '*'
+        nativesdk-glibc-dev: '*'
+        nativesdk-libgcc-dev: '*'
+        nativesdk-rust: '*'
+        packagegroup-rust-cross-canadian-avocado-{{ avocado.target }}: '*'
+
+sdk:
+  image: docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}
+
+  container_args:
+    - --network=host
+    - --privileged
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    pi-metrics-app:
+      compile: rust-compile.sh
+      packages:
+        libstd-rs: '*'
+        libstd-rs-dev: '*'
+
+  packages:
+    avocado-sdk-toolchain: '*'

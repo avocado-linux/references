@@ -1,0 +1,13 @@
+[Unit]
+Description=Pi Metrics Exporter (Prometheus)
+After=network.target
+Wants=network.target
+
+[Service]
+ExecStart=/usr/bin/pi_metrics
+Restart=always
+RestartSec=5
+SyslogIdentifier=pi-metrics
+
+[Install]
+WantedBy=multi-user.target
