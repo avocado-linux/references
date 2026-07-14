@@ -1,0 +1,13 @@
+[Unit]
+Description=Fleet coordinator on pinned Python 3.14
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/lib/app314/python/bin/python3.14 /usr/local/bin/app314.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

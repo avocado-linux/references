@@ -1,0 +1,10 @@
+app*/packages/
+app*/python/
+app*/uv-python/
+broker/bin/
+.avocado/
+.avocado-state
+avocado.lock
+__pycache__/
+.ruff_cache/
+.DS_Store

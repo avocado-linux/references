@@ -1,0 +1,183 @@
+cli_requirement: ">=0.26.0"
+
+default_target: "qemux86-64"
+
+supported_targets:
+  - qemux86-64
+  - raspberrypi5
+  - raspberrypi4
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - config
+      - broker
+      - app311
+      - app312
+      - app314
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  # app311: ships its own CPython 3.11 (python-build-standalone via uv) plus the
+  # deps resolved against it. Runs entirely off the shipped interpreter.
+  app311:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Fleet app pinned to Python 3.11 (uv-installed interpreter)"
+    overlay: app311/overlay
+    packages:
+      app311:
+        compile: app311
+        install: app311-install.sh
+    enable_services:
+      - app311.service
+    on_merge:
+      - systemctl restart --no-block app311.service
+    on_unmerge:
+      - systemctl stop app311.service
+    sdk:
+      packages:
+        nativesdk-uv: "*"
+
+  # app312: runs on the device's system Python (3.12, the Yocto build's own
+  # interpreter). Only the deps are shipped; no interpreter is bundled.
+  app312:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Fleet app on the system Python 3.12"
+    overlay: app312/overlay
+    packages:
+      app312:
+        compile: app312
+        install: app312-install.sh
+      python3: "*"
+    enable_services:
+      - app312.service
+    on_merge:
+      - systemctl restart --no-block app312.service
+    on_unmerge:
+      - systemctl stop app312.service
+    sdk:
+      packages:
+        nativesdk-uv: "*"
+
+  # app314: ships its own CPython 3.14 (python-build-standalone via uv) plus the
+  # deps resolved against it, including native scipy. Acts as fleet coordinator.
+  app314:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Fleet coordinator pinned to Python 3.14 (uv-installed interpreter)"
+    overlay: app314/overlay
+    packages:
+      app314:
+        compile: app314
+        install: app314-install.sh
+    enable_services:
+      - app314.service
+    on_merge:
+      - systemctl restart --no-block app314.service
+    on_unmerge:
+      - systemctl stop app314.service
+    sdk:
+      packages:
+        nativesdk-uv: "*"
+
+  # broker: ships a static nats-server binary (downloaded at build time) and a
+  # systemd unit that starts it on 127.0.0.1:4222 before the apps.
+  broker:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: "NATS message broker for fleet coordination"
+    overlay: broker/overlay
+    packages:
+      broker:
+        compile: broker
+        install: broker-install.sh
+    enable_services:
+      - nats.service
+    on_merge:
+      - systemctl restart --no-block nats.service
+    on_unmerge:
+      - systemctl stop nats.service
+
+  # Generated default config extension.
+  # NOT FOR PRODUCTION: sets an empty root password for easy console login.
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    app311:
+      compile: app311-compile.sh
+      clean: app311-clean.sh
+    app312:
+      compile: app312-compile.sh
+      clean: app312-clean.sh
+    app314:
+      compile: app314-compile.sh
+      clean: app314-clean.sh
+    broker:
+      compile: broker-compile.sh
+      clean: broker-clean.sh
+
+  packages:
+    avocado-sdk-toolchain: "*"
