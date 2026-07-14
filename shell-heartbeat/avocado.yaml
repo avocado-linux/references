@@ -54,7 +54,6 @@ extensions:
     types:
       - confext
     version: "0.1.0"
-    overlay: overlay
     users:
       root:
         password: ""
