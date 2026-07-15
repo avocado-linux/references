@@ -1,0 +1,116 @@
+cli_requirement: ">=0.41.0"
+
+default_target: "raspberrypi5"
+
+supported_targets:
+  - raspberrypi4
+  - raspberrypi5
+  - jetson-orin-nano-devkit
+  - jetson-agx-orin-devkit
+  - imx8mp-evk
+  - imx8mp-var-dart
+  - imx91-frdm
+  - imx93-evk
+  - imx93-frdm
+  - imx95-frdm
+  - ucm-imx8m-plus
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - config
+      - app
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Intel RealSense web visualizer"
+    overlay: app/overlay
+    packages:
+      app:
+        compile: app
+        install: app-install.sh
+      librealsense2: "*"
+      python3-opencv: "*"
+      python3-numpy: "*"
+      v4l-utils: "*"
+    enable_services:
+      - realsense-visualizer.service
+    on_merge:
+      - systemctl restart --no-block realsense-visualizer.service
+    on_unmerge:
+      - systemctl stop realsense-visualizer.service
+
+    sdk:
+      packages:
+        nativesdk-uv: "*"
+
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    app:
+      compile: app-compile.sh
+      clean: app-clean.sh
+      packages:
+        librealsense2-dev: "*"
+
+  packages:
+    avocado-sdk-toolchain: "*"
