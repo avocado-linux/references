@@ -1,5 +1,5 @@
 ---
-language: Python
+language: C++
 targets:
   - raspberrypi4
   - raspberrypi5
@@ -25,7 +25,7 @@ Features:
 - Click any feed to measure distance at that pixel (returns distance in meters and 3D coordinates)
 - Live device info bar (camera model, serial, firmware, USB type, depth scale)
 - Responsive single-page dashboard served on port 5000
-- Bundled pip packages (Flask, pyrealsense2) deployed as a system extension
+- Native C++ build: links the packaged `librealsense2` SDK directly, serves over `libmicrohttpd`, encodes frames with `libjpeg-turbo` — no pip, no vendored binaries, every dependency an Avocado package
 - systemd-managed service that starts on boot
 
 Supported hardware:

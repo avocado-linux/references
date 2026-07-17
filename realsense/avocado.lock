@@ -1,0 +1,7 @@
+{
+  "distro_release": "2024",
+  "targets": {
+    "raspberrypi5": {}
+  },
+  "version": 7
+}

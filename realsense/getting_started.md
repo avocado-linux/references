@@ -26,7 +26,7 @@ avocado install -f
 avocado build
 ```
 
-This compiles the Python dependencies (Flask, pyrealsense2) inside the SDK container and assembles the system extension, bundling the RealSense runtime libraries (`librealsense2`, `python3-opencv`, `python3-numpy`) alongside the app.
+This cross-compiles the C++ app inside the SDK container with CMake, linking the packaged `librealsense2`, `libmicrohttpd`, and `libjpeg-turbo` libraries from the target sysroot, then assembles the system extension with the compiled binary and those runtime libraries.
 
 ## Deploy
 
@@ -83,10 +83,16 @@ You should see the service `active (running)`.
 
 ## Customize
 
+The application source is `app/src/app.cpp`, built by `app/src/CMakeLists.txt`.
+
 ### Change the port
 
-Edit `app/overlay/usr/local/bin/app.py` and modify the `app.run(port=...)` line.
+Edit the `kPort` constant near the top of `app/src/app.cpp`, then rebuild.
 
-### Add pip dependencies
+### Change resolution or frame rate
 
-Add packages to the `uv pip install` line in `app-compile.sh`, then rebuild.
+Adjust the `kWidth`, `kHeight`, and `kFps` constants in `app/src/app.cpp`. Note the comment about USB 2.0 bandwidth — three streams at 30 fps can exceed it.
+
+### Add a dependency
+
+Add the runtime package to the `app` extension's `packages` list in `avocado.yaml` and its `-dev` package to the SDK `compile.app.packages` list, then link it in `app/src/CMakeLists.txt`.

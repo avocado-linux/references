@@ -4,10 +4,8 @@
 
 set -e
 
-echo "Installing RealSense visualizer into extension"
+echo "Installing realsense-visualizer into extension"
 
-# Copy pip packages to a dedicated app directory
-mkdir -p "$AVOCADO_BUILD_EXT_SYSROOT/usr/lib/app/packages"
-cp -r app/packages/* "$AVOCADO_BUILD_EXT_SYSROOT/usr/lib/app/packages/"
+DESTDIR="$AVOCADO_BUILD_EXT_SYSROOT" cmake --install app/src/build
 
-echo "RealSense visualizer installed successfully"
+echo "realsense-visualizer installed successfully"

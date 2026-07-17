@@ -3,6 +3,6 @@
 set -e
 
 echo "Cleaning build artifacts..."
-rm -rf app/packages
+rm -rf app/src/build
 
 echo "Clean complete"

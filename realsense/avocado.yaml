@@ -35,6 +35,8 @@ runtimes:
       - avocado-bsp-{{ avocado.target.board }}
       - config
       - app
+      - avocado-ext-connect
+      - avocado-ext-tunnels
     packages:
       avocado-runtime: "*"
 
@@ -70,19 +72,14 @@ extensions:
         compile: app
         install: app-install.sh
       librealsense2: "*"
-      python3-opencv: "*"
-      python3-numpy: "*"
-      v4l-utils: "*"
+      libmicrohttpd12: "*"
+      libjpeg62: "*"
     enable_services:
       - realsense-visualizer.service
     on_merge:
       - systemctl restart --no-block realsense-visualizer.service
     on_unmerge:
       - systemctl stop realsense-visualizer.service
-
-    sdk:
-      packages:
-        nativesdk-uv: "*"
 
   config:
     types:
@@ -91,6 +88,15 @@ extensions:
     users:
       root:
         password: ""
+  avocado-ext-connect:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-tunnels:
+    source:
+      type: package
+      version: "*"
 
 ##
 ## SDK
@@ -99,18 +105,15 @@ extensions:
 sdk:
   image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
 
-  container_args:
-    - --privileged
-    - --network=host
-    - -v /dev:/dev
-    - -v /sys:/sys
-
   compile:
     app:
       compile: app-compile.sh
       clean: app-clean.sh
       packages:
         librealsense2-dev: "*"
+        libmicrohttpd-dev: "*"
+        libjpeg-dev: "*"
 
   packages:
     avocado-sdk-toolchain: "*"
+    nativesdk-cmake: "*"

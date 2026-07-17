@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/python3 /usr/local/bin/app.py
+ExecStart=/usr/bin/realsense-visualizer
 Restart=on-failure
 RestartSec=5
 
