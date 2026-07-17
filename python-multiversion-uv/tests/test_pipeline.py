@@ -14,6 +14,7 @@ fast iteration loop, the boot is the isolation gate.
 
 import json
 import os
+import select
 import shutil
 import signal
 import socket
@@ -40,6 +41,25 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
+def _wait_listening(port: int, proc: subprocess.Popen, timeout: float = 10.0) -> None:
+    """Block until nats-server accepts a connection, or the server dies.
+
+    Replaces a fixed sleep: the port from _free_port() is only reserved until
+    the bind closes, so poll for the server actually listening rather than
+    assuming it is up after a hardcoded delay.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if proc.poll() is not None:
+            raise RuntimeError(f"nats-server exited early (code {proc.returncode})")
+        with socket.socket() as s:
+            s.settimeout(0.25)
+            if s.connect_ex(("127.0.0.1", port)) == 0:
+                return
+        time.sleep(0.05)
+    raise RuntimeError(f"nats-server never listened on {port} within {timeout}s")
+
+
 @pytest.fixture()
 def broker():
     if not NATS_SERVER.exists():
@@ -50,7 +70,7 @@ def broker():
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    time.sleep(0.5)
+    _wait_listening(port, proc)
     try:
         yield f"nats://127.0.0.1:{port}"
     finally:
@@ -74,6 +94,7 @@ def _run_app(path: Path, nats_url: str) -> subprocess.Popen:
         stderr=subprocess.STDOUT,
         text=True,
         bufsize=1,
+        start_new_session=True,  # own process group so teardown reaps uv's child too
     )
 
 
@@ -87,6 +108,14 @@ def test_pipeline_completes(broker):
     deadline = time.monotonic() + TIMEOUT_S
     try:
         while time.monotonic() < deadline:
+            # select enforces the deadline even when app314 emits no output --
+            # a broken producer/processor would otherwise leave readline()
+            # blocking forever instead of failing the test at the timeout.
+            ready, _, _ = select.select([coordinator.stdout], [], [], 1.0)
+            if not ready:
+                if coordinator.poll() is not None:
+                    break
+                continue
             line = coordinator.stdout.readline()
             if not line:
                 if coordinator.poll() is not None:
@@ -100,13 +129,19 @@ def test_pipeline_completes(broker):
                 complete = obj
                 break
     finally:
+        groups = []
         for proc in procs.values():
-            proc.send_signal(signal.SIGINT)
-        for proc in procs.values():
+            try:
+                groups.append((proc, os.getpgid(proc.pid)))
+            except ProcessLookupError:
+                pass
+        for _, pgid in groups:
+            os.killpg(pgid, signal.SIGINT)
+        for proc, pgid in groups:
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                proc.kill()
+                os.killpg(pgid, signal.SIGKILL)
 
     assert complete is not None, "app314 never emitted a pipeline_complete event"
 
