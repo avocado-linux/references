@@ -14,6 +14,7 @@ import json
 import os
 import sys
 import time
+from collections import deque
 
 # --- per-app configuration (the only lines that differ between apps) ---------
 APP = "app314"
@@ -105,7 +106,9 @@ async def run(me):
     from scipy import stats as sps
 
     nc = await connect()
-    window = []
+    # Bounded so a long-lived aggregator never leaks: only the last WINDOW_N
+    # processed windows feed the trend fit.
+    window = deque(maxlen=WINDOW_N)
     completed = False
 
     async def on_processed(msg):
@@ -119,7 +122,7 @@ async def run(me):
         if len(window) < WINDOW_N:
             return
 
-        batch = window[-WINDOW_N:]
+        batch = list(window)
         rms = np.array([b["stats"]["rms"] for b in batch], dtype=float)
         idx = np.arange(rms.size, dtype=float)
         fit = sps.linregress(idx, rms)  # scipy: trend across the window

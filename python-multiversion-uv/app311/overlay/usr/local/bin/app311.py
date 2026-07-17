@@ -125,6 +125,10 @@ async def run(me):
             await nc.flush(timeout=5)
         except Exception as exc:
             log({"event": "nats_lost", "error": str(exc)})
+            try:
+                await nc.close()  # release the dropped client's reconnect tasks
+            except Exception:
+                pass
             nc = await connect()
             continue
         log({"event": "produced", "seq": seq, "n": WINDOW})
