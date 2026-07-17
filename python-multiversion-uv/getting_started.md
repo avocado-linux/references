@@ -1,8 +1,8 @@
 # <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Getting Started with Python Multi-Version with UV
 
-This guide builds and runs three Python apps on one Avocado OS device, each pinned to a different CPython version (3.11, 3.12, 3.14), all installed with [uv](https://docs.astral.sh/uv/) at build time. Two apps ship their own standalone interpreter inside their extension; one runs on the device's system Python. The three discover each other over a local NATS broker.
+This guide builds and runs three Python apps on one Avocado OS device, each pinned to a different CPython version (3.11, 3.12, 3.14), all installed with [uv](https://docs.astral.sh/uv/) at build time. Two apps ship their own standalone interpreter inside their extension; one runs on the device's system Python. The three form a producer → processor → aggregator data pipeline over a local NATS broker.
 
-The pattern mirrors a real fleet where independent apps pin different Python versions from their own dependency sets and coordinate over a message bus.
+The pattern mirrors a real fleet where independent apps pin different Python versions from their own dependency sets and collaborate over a message bus.
 
 ## Prerequisites
 
@@ -79,14 +79,14 @@ Insert the SD card into the device and apply power.
 
 Log in as `root` with an empty password. All three app services and the NATS broker start automatically on boot.
 
-Each app logs a single `startup` line reporting the interpreter it is running on and the native dependencies it loaded:
+Each app logs a single `startup` line reporting the interpreter it runs on and the native dependencies it loaded:
 
 ```bash
 journalctl -u app311 -o cat
 ```
 
 ```json
-{"event": "startup", "app": "app311", "role": "member", "python": "3.11.14", "executable": "/usr/lib/app311/python/bin/python3.11", "deps": {"numpy": "2.4.6", "nats-py": "2.15.0"}}
+{"event": "startup", "app": "app311", "role": "producer", "python": "3.11.14", "executable": "/usr/lib/app311/python/bin/python3.11", "deps": {"numpy": "2.4.6", "nats-py": "2.15.0"}}
 ```
 
 ```bash
@@ -94,7 +94,7 @@ journalctl -u app312 -o cat
 ```
 
 ```json
-{"event": "startup", "app": "app312", "role": "member", "python": "3.12.13", "executable": "/usr/bin/python3", "deps": {"numpy": "2.5.1", "nats-py": "2.15.0", "mcap": "1.4.0"}}
+{"event": "startup", "app": "app312", "role": "processor", "python": "3.12.13", "executable": "/usr/bin/python3", "deps": {"numpy": "2.5.1", "nats-py": "2.15.0", "mcap": "1.4.0"}}
 ```
 
 ```bash
@@ -102,17 +102,37 @@ journalctl -u app314 -o cat
 ```
 
 ```json
-{"event": "startup", "app": "app314", "role": "coordinator", "python": "3.14.2", "executable": "/usr/lib/app314/python/bin/python3.14", "deps": {"numpy": "2.5.1", "scipy": "1.18.0", "nats-py": "2.15.0"}}
+{"event": "startup", "app": "app314", "role": "aggregator", "python": "3.14.2", "executable": "/usr/lib/app314/python/bin/python3.14", "deps": {"numpy": "2.5.1", "scipy": "1.18.0", "nats-py": "2.15.0"}}
 ```
 
-The `python` field of each app is a different version, and every native dependency loads. `app314` is the coordinator: it subscribes to the NATS `fleet.hello` subject, collects a hello from each interpreter, and logs `fleet_complete` once all three are present:
+The `python` field of each app is a different version, and every native dependency loads. numpy diverges (2.4.6 on 3.11 vs 2.5.1 on 3.12 and 3.14) because each app resolved against its own interpreter.
+
+### The pipeline
+
+The three apps form a data pipeline over NATS, each stage on its own interpreter:
+
+- **app311 (producer, 3.11)** generates a window of samples with numpy and publishes it on `fleet.pipeline.raw`.
+- **app312 (processor, 3.12)** consumes each window, reduces it to numpy statistics (mean, std, RMS, and the FFT peak frequency), and republishes on `fleet.pipeline.processed`.
+- **app314 (aggregator, 3.14)** consumes the statistics, fits a trend across a rolling window with scipy, and logs the result.
+
+Watch the data flow through the first two stages:
+
+```bash
+journalctl -u app311 -o cat | grep produced    # {"event": "produced", "seq": 7, "n": 64}
+journalctl -u app312 -o cat | grep processed   # {"event": "processed", "seq": 7, "peak_hz": 5.0}
+```
+
+Once the aggregator has seen a full window it logs `pipeline_complete`, whose `chain` names all three interpreters that touched the data:
+
+```bash
+journalctl -u app314 -o cat | grep pipeline_complete
+```
 
 ```json
-{"event": "roster", "seen": {"3.14": "app314", "3.11": "app311", "3.12": "app312"}}
-{"event": "fleet_complete", "interpreters": ["3.11", "3.12", "3.14"]}
+{"event": "pipeline_complete", "seq": 11, "chain": {"producer": {"app": "app311", "python": "3.11.14"}, "processor": {"app": "app312", "python": "3.12.13"}, "aggregator": {"app": "app314", "python": "3.14.2"}}, "result": {"window": 3, "rms_mean": 0.763675, "rms_trend_slope": -0.007031, "peak_hz": 5.0}}
 ```
 
-That single `fleet_complete` line is the whole-system success signal: three apps, three interpreters, one device, talking over NATS.
+That single `pipeline_complete` line is the whole-system success signal: three apps, three interpreters, one device, collaborating on one result over NATS. The `peak_hz: 5.0` is the tone app311 injected, recovered by app312's FFT — proof the data really flowed through every stage.
 
 ## Customize
 

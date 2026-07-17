@@ -1,30 +1,34 @@
 #!/usr/bin/env python3
-"""Fleet app running on its own pinned Python interpreter.
+"""Fleet aggregator/coordinator on its own pinned Python 3.14 interpreter.
 
 Proves two things at runtime: the process runs on the exact CPython version this
 app was built against, and it can import its own native dependencies from the
-per-app package directory. As the coordinator it also tallies the fleet: once it
-has seen a hello from all three interpreters it logs a fleet_complete event.
+per-app package directory. It closes the NATS pipeline -- it consumes the
+processor's (app312) statistics, uses scipy to fit a trend across a rolling
+window, and logs a pipeline_complete event whose chain names all three
+interpreters that touched the data. That single line is the fleet's proof that
+three independently pinned Pythons collaborated on one result.
 """
 
 import json
 import os
 import sys
 import time
+from collections import deque
 
 # --- per-app configuration (the only lines that differ between apps) ---------
 APP = "app314"
 PKG_DIR = "/usr/lib/app314/packages"
 EXPECT = "3.14"
-ROLE = "coordinator"
+ROLE = "aggregator"
 NATIVE = [("numpy", "numpy"), ("scipy", "scipy"), ("nats", "nats-py")]
 # -----------------------------------------------------------------------------
 
 sys.path.insert(0, PKG_DIR)
 
 NATS_URL = os.environ.get("FLEET_NATS_URL", "nats://127.0.0.1:4222")
-SUBJECT = "fleet.hello"
-EXPECTED_VERSIONS = {"3.11", "3.12", "3.14"}
+PROCESSED_SUBJECT = "fleet.pipeline.processed"
+WINDOW_N = 3  # fit a trend across this many processed windows
 
 
 def dep_versions():
@@ -74,15 +78,13 @@ def main():
         while True:
             time.sleep(3600)
 
-    asyncio.run(run_nats(me))
+    asyncio.run(run(me))
 
 
-async def run_nats(me):
+async def connect():
     import asyncio
 
     import nats
-
-    seen = {}  # major.minor -> app name (coordinator only)
 
     while True:
         try:
@@ -93,35 +95,59 @@ async def run_nats(me):
             log({"event": "nats_connect_retry", "error": str(exc)})
             await asyncio.sleep(3)
             continue
-
         log({"event": "nats_connected", "url": NATS_URL})
+        return nc
 
-        async def on_hello(msg):
-            try:
-                peer = json.loads(msg.data.decode())
-            except Exception:
-                return
-            if ROLE != "coordinator":
-                return
-            seen[peer["python"].rsplit(".", 1)[0]] = peer["app"]
-            log({"event": "roster", "seen": seen})
-            if EXPECTED_VERSIONS <= set(seen):
-                log({"event": "fleet_complete", "interpreters": sorted(seen)})
 
-        await nc.subscribe(SUBJECT, cb=on_hello)
+async def run(me):
+    import asyncio
 
+    import numpy as np
+    from scipy import stats as sps
+
+    nc = await connect()
+    # Bounded so a long-lived aggregator never leaks: only the last WINDOW_N
+    # processed windows feed the trend fit.
+    window = deque(maxlen=WINDOW_N)
+    completed = False
+
+    async def on_processed(msg):
+        nonlocal completed
         try:
-            while True:
-                await nc.publish(SUBJECT, json.dumps(me).encode())
-                await nc.flush(timeout=5)
-                await asyncio.sleep(5)
-        except Exception as exc:
-            log({"event": "nats_lost", "error": str(exc)})
-            try:
-                await nc.close()
-            except Exception:
-                pass
-            await asyncio.sleep(3)
+            processed = json.loads(msg.data.decode())
+        except Exception:
+            return
+        window.append(processed)
+        log({"event": "aggregating", "seq": processed["seq"], "have": len(window)})
+        if len(window) < WINDOW_N:
+            return
+
+        batch = list(window)
+        rms = np.array([b["stats"]["rms"] for b in batch], dtype=float)
+        idx = np.arange(rms.size, dtype=float)
+        fit = sps.linregress(idx, rms)  # scipy: trend across the window
+        last = batch[-1]
+        chain = {
+            "producer": {"app": last["producer"], "python": last["producer_python"]},
+            "processor": {"app": last["processor"], "python": last["processor_python"]},
+            "aggregator": {"app": APP, "python": me["python"]},
+        }
+        result = {
+            "window": WINDOW_N,
+            "rms_mean": round(float(rms.mean()), 6),
+            "rms_trend_slope": round(float(fit.slope), 6),
+            "peak_hz": last["stats"]["peak_hz"],
+        }
+        # The first full window is the headline proof; later windows keep
+        # logging so the pipeline visibly stays live.
+        event = "pipeline_complete" if not completed else "pipeline_result"
+        completed = True
+        log({"event": event, "seq": last["seq"], "chain": chain, "result": result})
+
+    await nc.subscribe(PROCESSED_SUBJECT, cb=on_processed)
+    log({"event": "subscribed", "subject": PROCESSED_SUBJECT})
+    while True:
+        await asyncio.sleep(3600)
 
 
 if __name__ == "__main__":

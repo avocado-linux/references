@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Fleet app running on its own pinned Python interpreter.
+"""Fleet processor on its own pinned Python 3.12 interpreter.
 
 Proves two things at runtime: the process runs on the exact CPython version this
 app was built against, and it can import its own native dependencies from the
-per-app package directory. It then joins a NATS mesh so the fleet can confirm
-all three interpreters are live together.
+per-app package directory. It sits in the middle of the NATS pipeline -- it
+consumes raw sample windows from the producer (app311), reduces each one to a
+handful of numpy statistics, and republishes the result on
+fleet.pipeline.processed for the aggregator (app314).
 """
 
 import json
@@ -16,15 +18,15 @@ import time
 APP = "app312"
 PKG_DIR = "/usr/lib/app312/packages"
 EXPECT = "3.12"
-ROLE = "member"
+ROLE = "processor"
 NATIVE = [("numpy", "numpy"), ("nats", "nats-py"), ("mcap", "mcap")]
 # -----------------------------------------------------------------------------
 
 sys.path.insert(0, PKG_DIR)
 
 NATS_URL = os.environ.get("FLEET_NATS_URL", "nats://127.0.0.1:4222")
-SUBJECT = "fleet.hello"
-EXPECTED_VERSIONS = {"3.11", "3.12", "3.14"}
+RAW_SUBJECT = "fleet.pipeline.raw"
+PROCESSED_SUBJECT = "fleet.pipeline.processed"
 
 
 def dep_versions():
@@ -74,15 +76,13 @@ def main():
         while True:
             time.sleep(3600)
 
-    asyncio.run(run_nats(me))
+    asyncio.run(run(me))
 
 
-async def run_nats(me):
+async def connect():
     import asyncio
 
     import nats
-
-    seen = {}  # major.minor -> app name (coordinator only)
 
     while True:
         try:
@@ -93,35 +93,52 @@ async def run_nats(me):
             log({"event": "nats_connect_retry", "error": str(exc)})
             await asyncio.sleep(3)
             continue
-
         log({"event": "nats_connected", "url": NATS_URL})
+        return nc
 
-        async def on_hello(msg):
-            try:
-                peer = json.loads(msg.data.decode())
-            except Exception:
-                return
-            if ROLE != "coordinator":
-                return
-            seen[peer["python"].rsplit(".", 1)[0]] = peer["app"]
-            log({"event": "roster", "seen": seen})
-            if EXPECTED_VERSIONS <= set(seen):
-                log({"event": "fleet_complete", "interpreters": sorted(seen)})
 
-        await nc.subscribe(SUBJECT, cb=on_hello)
+async def run(me):
+    import asyncio
 
+    import numpy as np
+
+    nc = await connect()
+
+    async def on_raw(msg):
         try:
-            while True:
-                await nc.publish(SUBJECT, json.dumps(me).encode())
-                await nc.flush(timeout=5)
-                await asyncio.sleep(5)
+            raw = json.loads(msg.data.decode())
+        except Exception:
+            return
+        x = np.asarray(raw["samples"], dtype=float)
+        spectrum = np.abs(np.fft.rfft(x))
+        freqs = np.fft.rfftfreq(x.size, d=1.0 / raw["sample_rate"])
+        # skip the DC bin (index 0) when locating the dominant tone
+        peak_hz = float(freqs[1 + int(np.argmax(spectrum[1:]))]) if x.size > 1 else 0.0
+        out = {
+            "seq": raw["seq"],
+            "producer": raw["producer"],
+            "producer_python": raw["producer_python"],
+            "processor": APP,
+            "processor_python": me["python"],
+            "stats": {
+                "mean": round(float(x.mean()), 6),
+                "std": round(float(x.std()), 6),
+                "rms": round(float(np.sqrt(np.mean(x**2))), 6),
+                "peak_hz": round(peak_hz, 3),
+            },
+        }
+        try:
+            await nc.publish(PROCESSED_SUBJECT, json.dumps(out).encode())
+            await nc.flush(timeout=5)
         except Exception as exc:
             log({"event": "nats_lost", "error": str(exc)})
-            try:
-                await nc.close()
-            except Exception:
-                pass
-            await asyncio.sleep(3)
+            return
+        log({"event": "processed", "seq": out["seq"], "peak_hz": out["stats"]["peak_hz"]})
+
+    await nc.subscribe(RAW_SUBJECT, cb=on_raw)
+    log({"event": "subscribed", "subject": RAW_SUBJECT})
+    while True:
+        await asyncio.sleep(3600)
 
 
 if __name__ == "__main__":

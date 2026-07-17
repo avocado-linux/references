@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Fleet app running on its own pinned Python interpreter.
+"""Fleet producer on its own pinned Python 3.11 interpreter.
 
 Proves two things at runtime: the process runs on the exact CPython version this
 app was built against, and it can import its own native dependencies from the
-per-app package directory. It then joins a NATS mesh so the fleet can confirm
-all three interpreters are live together.
+per-app package directory. It then drives a NATS data pipeline -- it generates a
+window of samples with numpy and publishes it on fleet.pipeline.raw for the
+processor (app312) to consume.
 """
 
 import json
@@ -16,15 +17,19 @@ import time
 APP = "app311"
 PKG_DIR = "/usr/lib/app311/packages"
 EXPECT = "3.11"
-ROLE = "member"
+ROLE = "producer"
 NATIVE = [("numpy", "numpy"), ("nats", "nats-py")]
 # -----------------------------------------------------------------------------
 
 sys.path.insert(0, PKG_DIR)
 
 NATS_URL = os.environ.get("FLEET_NATS_URL", "nats://127.0.0.1:4222")
-SUBJECT = "fleet.hello"
-EXPECTED_VERSIONS = {"3.11", "3.12", "3.14"}
+RAW_SUBJECT = "fleet.pipeline.raw"
+
+PERIOD_S = 2.0  # publish a fresh window this often
+WINDOW = 64  # samples per window
+SAMPLE_RATE = 64.0  # Hz -- one window is one second of signal
+SIGNAL_HZ = 5.0  # the tone buried in the noise
 
 
 def dep_versions():
@@ -74,15 +79,13 @@ def main():
         while True:
             time.sleep(3600)
 
-    asyncio.run(run_nats(me))
+    asyncio.run(run(me))
 
 
-async def run_nats(me):
+async def connect():
     import asyncio
 
     import nats
-
-    seen = {}  # major.minor -> app name (coordinator only)
 
     while True:
         try:
@@ -93,35 +96,43 @@ async def run_nats(me):
             log({"event": "nats_connect_retry", "error": str(exc)})
             await asyncio.sleep(3)
             continue
-
         log({"event": "nats_connected", "url": NATS_URL})
+        return nc
 
-        async def on_hello(msg):
-            try:
-                peer = json.loads(msg.data.decode())
-            except Exception:
-                return
-            if ROLE != "coordinator":
-                return
-            seen[peer["python"].rsplit(".", 1)[0]] = peer["app"]
-            log({"event": "roster", "seen": seen})
-            if EXPECTED_VERSIONS <= set(seen):
-                log({"event": "fleet_complete", "interpreters": sorted(seen)})
 
-        await nc.subscribe(SUBJECT, cb=on_hello)
+async def run(me):
+    import asyncio
 
+    import numpy as np
+
+    nc = await connect()
+
+    t = np.arange(WINDOW) / SAMPLE_RATE
+    seq = 0
+    while True:
+        seq += 1
+        rng = np.random.default_rng(seq)  # seeded per window -> reproducible
+        samples = np.sin(2 * np.pi * SIGNAL_HZ * t) + 0.3 * rng.standard_normal(WINDOW)
+        payload = {
+            "seq": seq,
+            "producer": APP,
+            "producer_python": me["python"],
+            "sample_rate": SAMPLE_RATE,
+            "samples": np.round(samples, 6).tolist(),
+        }
         try:
-            while True:
-                await nc.publish(SUBJECT, json.dumps(me).encode())
-                await nc.flush(timeout=5)
-                await asyncio.sleep(5)
+            await nc.publish(RAW_SUBJECT, json.dumps(payload).encode())
+            await nc.flush(timeout=5)
         except Exception as exc:
             log({"event": "nats_lost", "error": str(exc)})
             try:
-                await nc.close()
+                await nc.close()  # release the dropped client's reconnect tasks
             except Exception:
                 pass
-            await asyncio.sleep(3)
+            nc = await connect()
+            continue
+        log({"event": "produced", "seq": seq, "n": WINDOW})
+        await asyncio.sleep(PERIOD_S)
 
 
 if __name__ == "__main__":
