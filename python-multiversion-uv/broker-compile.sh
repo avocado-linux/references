@@ -2,20 +2,19 @@
 
 set -e
 
-# Detect the TARGET arch, not the SDK shell arch. The SDK container runs on the
-# x86_64 host even for aarch64 targets (only the target python is emulated via
-# binfmt), so `uname -m` would lie. The target python3 reports the real target
-# arch: x86_64 for qemux86-64, aarch64 for the Pi.
-TARGET_ARCH="$(python3 -c 'import platform; print(platform.machine())')"
-case "$TARGET_ARCH" in
-  x86_64) NARCH=amd64 ;;
-  aarch64 | arm64) NARCH=arm64 ;;
-  *) echo "[broker] unsupported target arch: $TARGET_ARCH" >&2; exit 1 ;;
+# Resolve the TARGET arch from AVOCADO_SDK_TARGET, the same way the app
+# compile scripts do. Do NOT probe python3/uname at runtime: the SDK
+# container's arch follows the HOST (aarch64 on Apple Silicon, x86_64 on
+# Intel), not the target, so runtime probes report the wrong arch whenever
+# host and target differ (e.g. an arm64 Mac building for qemux86-64).
+case "$AVOCADO_SDK_TARGET" in
+  *x86-64*|*x86_64*) NARCH=amd64 ;;
+  *)                 NARCH=arm64 ;;
 esac
 
 VER="$(curl -sfL https://api.github.com/repos/nats-io/nats-server/releases/latest \
   | grep -oE '"tag_name":[[:space:]]*"[^"]+"' | head -1 | grep -oE 'v[0-9.]+')"
-echo "[broker] nats-server $VER for linux-$NARCH (target $TARGET_ARCH)"
+echo "[broker] nats-server $VER for linux-$NARCH (target $AVOCADO_SDK_TARGET)"
 
 mkdir -p broker/bin
 curl -sfL "https://github.com/nats-io/nats-server/releases/download/${VER}/nats-server-${VER}-linux-${NARCH}.tar.gz" \
