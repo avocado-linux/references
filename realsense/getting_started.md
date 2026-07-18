@@ -81,6 +81,8 @@ systemctl status realsense-visualizer
 
 You should see the service `active (running)`.
 
+> **Note:** The empty `root` password is a development convenience configured by the `config` extension in `avocado.yaml`. **Do not ship it in a production image** — set a real password (or use SSH keys) before deploying anywhere untrusted.
+
 ## Customize
 
 The application source is `app/src/app.cpp`, built by `app/src/CMakeLists.txt`.

@@ -198,13 +198,15 @@ void capture_loop() {
             {
                 std::lock_guard<std::mutex> guard(g_lock);
                 g_depth_scale = scale;
-                char buf[512];
-                std::snprintf(buf, sizeof(buf),
-                              "{\"name\":\"%s\",\"serial\":\"%s\",\"firmware\":\"%s\","
-                              "\"usb\":\"%s\",\"depth_scale\":%g}",
-                              json_escape(name).c_str(), json_escape(serial).c_str(),
-                              json_escape(firmware).c_str(), json_escape(usb).c_str(), scale);
-                g_device_json = buf;
+                char scale_buf[32];
+                std::snprintf(scale_buf, sizeof(scale_buf), "%g", scale);
+                // Build with std::string (not a fixed buffer) so an unusually
+                // long device string can never truncate the JSON.
+                g_device_json = "{\"name\":\"" + json_escape(name) +
+                                "\",\"serial\":\"" + json_escape(serial) +
+                                "\",\"firmware\":\"" + json_escape(firmware) +
+                                "\",\"usb\":\"" + json_escape(usb) +
+                                "\",\"depth_scale\":" + scale_buf + "}";
             }
 
             std::printf("RealSense started: %s (S/N %s)\n", name.c_str(), serial.c_str());
@@ -647,7 +649,16 @@ MHD_Result handle_request(void* /*cls*/, struct MHD_Connection* conn, const char
     const std::string path = url;
 
     if (path == "/") {
-        return send_buffer(conn, MHD_HTTP_OK, kDashboardHtml, "text/html");
+        // kDashboardHtml has static storage, so serve it as a persistent buffer
+        // (no per-request allocation or copy of the whole page).
+        struct MHD_Response* resp = MHD_create_response_from_buffer(
+            sizeof(kDashboardHtml) - 1, const_cast<char*>(kDashboardHtml),
+            MHD_RESPMEM_PERSISTENT);
+        if (resp == nullptr) return MHD_NO;
+        MHD_add_response_header(resp, "Content-Type", "text/html");
+        MHD_Result ret = MHD_queue_response(conn, MHD_HTTP_OK, resp);
+        MHD_destroy_response(resp);
+        return ret;
     }
     if (path == "/feed/color") return send_feed(conn, "color");
     if (path == "/feed/depth") return send_feed(conn, "depth");
