@@ -51,6 +51,7 @@ rs2_intrinsics g_intrin{};
 bool g_intrin_valid = false;
 float g_depth_scale = 0.001f;
 std::string g_device_json = "{}";
+uint64_t g_frame_seq = 0;  // bumped on each new frame set so feeds skip duplicates
 
 std::atomic<bool> g_running{true};
 
@@ -117,8 +118,10 @@ std::string jpeg_encode(const uint8_t* data, int width, int height, int channels
 }
 
 // Snapshot one stream's pixels under lock, then encode outside the lock.
-bool snapshot(const std::string& key, Image& out) {
+// `seq` is set to the current frame sequence so callers can skip duplicates.
+bool snapshot(const std::string& key, Image& out, uint64_t& seq) {
     std::lock_guard<std::mutex> guard(g_lock);
+    seq = g_frame_seq;
     const Image* src = nullptr;
     if (key == "color") src = &g_color;
     else if (key == "depth") src = &g_depth;
@@ -130,9 +133,24 @@ bool snapshot(const std::string& key, Image& out) {
 
 std::string json_escape(const std::string& s) {
     std::string out;
-    for (char c : s) {
-        if (c == '"' || c == '\\') out += '\\';
-        out += c;
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"': out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n"; break;
+            case '\r': out += "\\r"; break;
+            case '\t': out += "\\t"; break;
+            case '\b': out += "\\b"; break;
+            case '\f': out += "\\f"; break;
+            default:
+                if (c < 0x20) {
+                    char u[8];
+                    std::snprintf(u, sizeof(u), "\\u%04x", c);
+                    out += u;
+                } else {
+                    out += static_cast<char>(c);
+                }
+        }
     }
     return out;
 }
@@ -237,6 +255,7 @@ void capture_loop() {
                 g_depth_h = dh;
                 g_intrin = intrin;
                 g_intrin_valid = true;
+                ++g_frame_seq;
             }
         } catch (const rs2::error& e) {
             std::fprintf(stderr, "RealSense error: %s - reconnecting\n", e.what());
@@ -269,7 +288,7 @@ struct FeedState {
     std::string key;
     std::string chunk;
     size_t offset = 0;
-    bool primed = false;
+    uint64_t last_seq = 0;  // sequence of the frame we last encoded
 };
 
 ssize_t feed_reader(void* cls, uint64_t /*pos*/, char* buf, size_t max) {
@@ -281,16 +300,16 @@ ssize_t feed_reader(void* cls, uint64_t /*pos*/, char* buf, size_t max) {
     while (st->offset >= st->chunk.size()) {
         if (!g_running.load()) return MHD_CONTENT_READER_END_OF_STREAM;
 
-        // Throttle to ~30 fps of encoding work; thread-per-connection makes
-        // sleeping here safe (it only blocks this one client's stream).
-        if (st->primed) std::this_thread::sleep_for(std::chrono::milliseconds(33));
-        st->primed = true;
-
         Image img;
-        if (!snapshot(st->key, img)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            continue;  // no frame yet (camera warming up or disconnected)
+        uint64_t seq = 0;
+        // Only encode when a genuinely new frame is available; this paces the
+        // feed to the capture rate instead of re-encoding the same frame. Poll
+        // at half the frame interval so we pick up each new frame promptly.
+        if (!snapshot(st->key, img, seq) || seq == st->last_seq) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000 / (kFps * 2)));
+            continue;  // no frame, or no new frame since last encode
         }
+        st->last_seq = seq;
 
         std::string jpeg = jpeg_encode(img.data.data(), img.width, img.height, img.channels);
         if (jpeg.empty()) continue;  // encode failed; try the next frame
@@ -346,8 +365,18 @@ unsigned int api_distance(struct MHD_Connection* conn, std::string& body) {
         return MHD_HTTP_BAD_REQUEST;
     }
 
-    int x = std::atoi(xs);
-    int y = std::atoi(ys);
+    // Parse strictly: strtol lets us reject non-numeric input rather than
+    // silently treating "foo" as 0 like atoi would.
+    char* x_end = nullptr;
+    char* y_end = nullptr;
+    long xl = std::strtol(xs, &x_end, 10);
+    long yl = std::strtol(ys, &y_end, 10);
+    if (x_end == xs || *x_end != '\0' || y_end == ys || *y_end != '\0') {
+        body = "{\"error\":\"x and y must be integers\"}";
+        return MHD_HTTP_BAD_REQUEST;
+    }
+    int x = static_cast<int>(xl);
+    int y = static_cast<int>(yl);
 
     std::lock_guard<std::mutex> guard(g_lock);
     if (!g_intrin_valid || g_depth_raw.empty()) {
@@ -533,12 +562,24 @@ async function loadDevice() {
   try {
     var r = await fetch('/api/device');
     var d = await r.json();
-    document.getElementById('deviceBar').innerHTML =
-      'Camera: <b>'+d.name+'</b>'+
-      ' &nbsp;|&nbsp; Serial: <b>'+d.serial+'</b>'+
-      ' &nbsp;|&nbsp; FW: <b>'+d.firmware+'</b>'+
-      ' &nbsp;|&nbsp; USB: <b>'+d.usb+'</b>'+
-      ' &nbsp;|&nbsp; Depth scale: <b>'+d.depth_scale+'</b>';
+    var bar = document.getElementById('deviceBar');
+    bar.textContent = '';
+    var fields = [
+      ['Camera: ', d.name],
+      ['Serial: ', d.serial],
+      ['FW: ', d.firmware],
+      ['USB: ', d.usb],
+      ['Depth scale: ', String(d.depth_scale)]
+    ];
+    // Use textContent (not innerHTML) so device-reported strings can never be
+    // interpreted as HTML.
+    fields.forEach(function(f, i) {
+      if (i > 0) bar.appendChild(document.createTextNode('  |  '));
+      bar.appendChild(document.createTextNode(f[0]));
+      var b = document.createElement('b');
+      b.textContent = (f[1] == null) ? '' : f[1];
+      bar.appendChild(b);
+    });
     var s = document.getElementById('status');
     s.textContent = 'LIVE';
     s.className = 'badge badge-live';

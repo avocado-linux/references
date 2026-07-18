@@ -85,6 +85,8 @@ extensions:
     types:
       - confext
     version: "0.1.0"
+
+    # NOT FOR PRODUCTION: Set root password to empty string
     users:
       root:
         password: ""
