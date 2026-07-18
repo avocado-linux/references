@@ -21,6 +21,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -80,19 +81,24 @@ void jpeg_on_error(j_common_ptr cinfo) {
 std::string jpeg_encode(const uint8_t* data, int width, int height, int channels) {
     jpeg_compress_struct cinfo;
     JpegErrorMgr jerr;
-    cinfo.err = jpeg_std_error(&jerr.pub);
-    jerr.pub.error_exit = jpeg_on_error;
-    jpeg_create_compress(&cinfo);
-
     unsigned char* out = nullptr;
     unsigned long out_size = 0;
+    volatile bool created = false;
+
+    // Wire the error handler, then establish the recovery point *before* any
+    // libjpeg call that can error (including jpeg_create_compress itself), so a
+    // longjmp always lands on an initialized buffer.
+    cinfo.err = jpeg_std_error(&jerr.pub);
+    jerr.pub.error_exit = jpeg_on_error;
 
     if (setjmp(jerr.setjmp_buffer)) {
-        jpeg_destroy_compress(&cinfo);
+        if (created) jpeg_destroy_compress(&cinfo);
         if (out != nullptr) free(out);
         return {};  // encode failed; caller treats an empty result as "no frame"
     }
 
+    jpeg_create_compress(&cinfo);
+    created = true;
     jpeg_mem_dest(&cinfo, &out, &out_size);
 
     cinfo.image_width = width;
@@ -373,6 +379,13 @@ unsigned int api_distance(struct MHD_Connection* conn, std::string& body) {
     long yl = std::strtol(ys, &y_end, 10);
     if (x_end == xs || *x_end != '\0' || y_end == ys || *y_end != '\0') {
         body = "{\"error\":\"x and y must be integers\"}";
+        return MHD_HTTP_BAD_REQUEST;
+    }
+    // Reject out-of-int-range values before narrowing so the cast stays
+    // well-defined (long is wider than int on 64-bit targets).
+    if (xl < std::numeric_limits<int>::min() || xl > std::numeric_limits<int>::max() ||
+        yl < std::numeric_limits<int>::min() || yl > std::numeric_limits<int>::max()) {
+        body = "{\"error\":\"x and y out of range\"}";
         return MHD_HTTP_BAD_REQUEST;
     }
     int x = static_cast<int>(xl);
