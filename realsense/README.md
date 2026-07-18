@@ -6,9 +6,12 @@ targets:
   - jetson-orin-nano-devkit
   - jetson-agx-orin-devkit
   - imx8mp-evk
+  - imx8mp-var-dart
   - imx91-frdm
   - imx93-evk
   - imx93-frdm
+  - imx95-frdm
+  - ucm-imx8m-plus
 topics:
   - camera
   - vision
@@ -31,6 +34,7 @@ Features:
 Supported hardware:
 - Raspberry Pi 4 and 5
 - NVIDIA Jetson Orin Nano and AGX Orin
-- NXP i.MX8M Plus, i.MX91, and i.MX93
+- NXP i.MX8M Plus, i.MX91, i.MX93, and i.MX95
+- Variscite DART-MX8M-Plus and CompuLab UCM-iMX8M-Plus
 
 Requires an Intel RealSense D400-series (D415, D435, D435i, D455) or L500-series camera connected via USB.

@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <csetjmp>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -63,14 +65,33 @@ constexpr int kPort = 5000;
 // JPEG encoding (libjpeg-turbo, in-memory)
 // ---------------------------------------------------------------------------
 
+// libjpeg's default error_exit calls exit(); route fatals back here instead so
+// a bad frame drops the JPEG rather than killing the whole server.
+struct JpegErrorMgr {
+    jpeg_error_mgr pub;
+    jmp_buf setjmp_buffer;
+};
+
+void jpeg_on_error(j_common_ptr cinfo) {
+    std::longjmp(reinterpret_cast<JpegErrorMgr*>(cinfo->err)->setjmp_buffer, 1);
+}
+
 std::string jpeg_encode(const uint8_t* data, int width, int height, int channels) {
     jpeg_compress_struct cinfo;
-    jpeg_error_mgr jerr;
-    cinfo.err = jpeg_std_error(&jerr);
+    JpegErrorMgr jerr;
+    cinfo.err = jpeg_std_error(&jerr.pub);
+    jerr.pub.error_exit = jpeg_on_error;
     jpeg_create_compress(&cinfo);
 
     unsigned char* out = nullptr;
     unsigned long out_size = 0;
+
+    if (setjmp(jerr.setjmp_buffer)) {
+        jpeg_destroy_compress(&cinfo);
+        if (out != nullptr) free(out);
+        return {};  // encode failed; caller treats an empty result as "no frame"
+    }
+
     jpeg_mem_dest(&cinfo, &out, &out_size);
 
     cinfo.image_width = width;
@@ -121,108 +142,119 @@ std::string json_escape(const std::string& s) {
 // ---------------------------------------------------------------------------
 
 void capture_loop() {
-    rs2::pipeline pipe;
     rs2::config cfg;
     cfg.enable_stream(RS2_STREAM_COLOR, kWidth, kHeight, RS2_FORMAT_RGB8, kFps);
     cfg.enable_stream(RS2_STREAM_DEPTH, kWidth, kHeight, RS2_FORMAT_Z16, kFps);
     cfg.enable_stream(RS2_STREAM_INFRARED, 1, kWidth, kHeight, RS2_FORMAT_Y8, kFps);
 
-    // Retry until the camera appears or we're told to stop.
-    rs2::pipeline_profile profile{};
+    // Outer loop: (re)start the pipeline and stream frames. librealsense throws
+    // rs2::error on a hardware fault (e.g. USB unplug mid-stream); catching it
+    // here — rather than letting it escape the thread and call std::terminate —
+    // lets the server stay up and reconnect when the camera returns.
     while (g_running.load()) {
         try {
-            profile = pipe.start(cfg);
-            break;
+            rs2::pipeline pipe;
+            rs2::pipeline_profile profile = pipe.start(cfg);
+
+            rs2::align aligner(RS2_STREAM_COLOR);
+            rs2::colorizer colorizer;
+            colorizer.set_option(RS2_OPTION_COLOR_SCHEME, 0);  // Jet
+
+            rs2::device dev = profile.get_device();
+            std::string name = dev.get_info(RS2_CAMERA_INFO_NAME);
+            std::string serial = dev.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER);
+            std::string firmware = dev.get_info(RS2_CAMERA_INFO_FIRMWARE_VERSION);
+            std::string usb = dev.supports(RS2_CAMERA_INFO_USB_TYPE_DESCRIPTOR)
+                                  ? dev.get_info(RS2_CAMERA_INFO_USB_TYPE_DESCRIPTOR)
+                                  : "N/A";
+
+            rs2::depth_sensor depth_sensor = dev.first<rs2::depth_sensor>();
+            float scale = depth_sensor.get_depth_scale();
+
+            {
+                std::lock_guard<std::mutex> guard(g_lock);
+                g_depth_scale = scale;
+                char buf[512];
+                std::snprintf(buf, sizeof(buf),
+                              "{\"name\":\"%s\",\"serial\":\"%s\",\"firmware\":\"%s\","
+                              "\"usb\":\"%s\",\"depth_scale\":%g}",
+                              json_escape(name).c_str(), json_escape(serial).c_str(),
+                              json_escape(firmware).c_str(), json_escape(usb).c_str(), scale);
+                g_device_json = buf;
+            }
+
+            std::printf("RealSense started: %s (S/N %s)\n", name.c_str(), serial.c_str());
+            std::fflush(stdout);
+
+            while (g_running.load()) {
+                rs2::frameset frames;
+                if (!pipe.try_wait_for_frames(&frames, 5000)) continue;
+
+                rs2::frameset aligned = aligner.process(frames);
+                rs2::video_frame color = aligned.get_color_frame();
+                rs2::depth_frame depth = aligned.get_depth_frame();
+                rs2::video_frame ir = frames.get_infrared_frame(1);
+
+                if (!color || !depth) continue;
+
+                rs2::video_frame colormap = colorizer.colorize(depth);
+
+                const auto* color_px = static_cast<const uint8_t*>(color.get_data());
+                const auto* depth_map_px = static_cast<const uint8_t*>(colormap.get_data());
+                const auto* depth_raw_px = static_cast<const uint16_t*>(depth.get_data());
+                const int dw = depth.get_width();
+                const int dh = depth.get_height();
+
+                rs2_intrinsics intrin =
+                    depth.get_profile().as<rs2::video_stream_profile>().get_intrinsics();
+
+                std::lock_guard<std::mutex> guard(g_lock);
+
+                g_color.data.assign(color_px, color_px + color.get_width() * color.get_height() * 3);
+                g_color.width = color.get_width();
+                g_color.height = color.get_height();
+                g_color.channels = 3;
+                g_color.valid = true;
+
+                g_depth.data.assign(depth_map_px,
+                                    depth_map_px + colormap.get_width() * colormap.get_height() * 3);
+                g_depth.width = colormap.get_width();
+                g_depth.height = colormap.get_height();
+                g_depth.channels = 3;
+                g_depth.valid = true;
+
+                if (ir) {
+                    const auto* ir_px = static_cast<const uint8_t*>(ir.get_data());
+                    g_ir.data.assign(ir_px, ir_px + ir.get_width() * ir.get_height());
+                    g_ir.width = ir.get_width();
+                    g_ir.height = ir.get_height();
+                    g_ir.channels = 1;
+                    g_ir.valid = true;
+                }
+
+                g_depth_raw.assign(depth_raw_px, depth_raw_px + dw * dh);
+                g_depth_w = dw;
+                g_depth_h = dh;
+                g_intrin = intrin;
+                g_intrin_valid = true;
+            }
         } catch (const rs2::error& e) {
-            std::fprintf(stderr, "Waiting for RealSense camera: %s\n", e.what());
+            std::fprintf(stderr, "RealSense error: %s - reconnecting\n", e.what());
             std::fflush(stderr);
+
+            // Mark streams stale so feeds/API stop serving the last frame from a
+            // camera that's no longer there.
+            {
+                std::lock_guard<std::mutex> guard(g_lock);
+                g_color.valid = false;
+                g_depth.valid = false;
+                g_ir.valid = false;
+                g_intrin_valid = false;
+            }
+
             for (int i = 0; i < 10 && g_running.load(); ++i)
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
         }
-    }
-    if (!g_running.load()) return;
-
-    rs2::align aligner(RS2_STREAM_COLOR);
-    rs2::colorizer colorizer;
-    colorizer.set_option(RS2_OPTION_COLOR_SCHEME, 0);  // Jet
-
-    rs2::device dev = profile.get_device();
-    std::string name = dev.get_info(RS2_CAMERA_INFO_NAME);
-    std::string serial = dev.get_info(RS2_CAMERA_INFO_SERIAL_NUMBER);
-    std::string firmware = dev.get_info(RS2_CAMERA_INFO_FIRMWARE_VERSION);
-    std::string usb = dev.supports(RS2_CAMERA_INFO_USB_TYPE_DESCRIPTOR)
-                          ? dev.get_info(RS2_CAMERA_INFO_USB_TYPE_DESCRIPTOR)
-                          : "N/A";
-
-    rs2::depth_sensor depth_sensor = dev.first<rs2::depth_sensor>();
-    float scale = depth_sensor.get_depth_scale();
-
-    {
-        std::lock_guard<std::mutex> guard(g_lock);
-        g_depth_scale = scale;
-        char buf[512];
-        std::snprintf(buf, sizeof(buf),
-                      "{\"name\":\"%s\",\"serial\":\"%s\",\"firmware\":\"%s\","
-                      "\"usb\":\"%s\",\"depth_scale\":%g}",
-                      json_escape(name).c_str(), json_escape(serial).c_str(),
-                      json_escape(firmware).c_str(), json_escape(usb).c_str(), scale);
-        g_device_json = buf;
-    }
-
-    std::printf("RealSense started: %s (S/N %s)\n", name.c_str(), serial.c_str());
-    std::fflush(stdout);
-
-    while (g_running.load()) {
-        rs2::frameset frames;
-        if (!pipe.try_wait_for_frames(&frames, 5000)) continue;
-
-        rs2::frameset aligned = aligner.process(frames);
-        rs2::video_frame color = aligned.get_color_frame();
-        rs2::depth_frame depth = aligned.get_depth_frame();
-        rs2::video_frame ir = frames.get_infrared_frame(1);
-
-        if (!color || !depth) continue;
-
-        rs2::video_frame colormap = colorizer.colorize(depth);
-
-        const auto* color_px = static_cast<const uint8_t*>(color.get_data());
-        const auto* depth_map_px = static_cast<const uint8_t*>(colormap.get_data());
-        const auto* depth_raw_px = static_cast<const uint16_t*>(depth.get_data());
-        const int dw = depth.get_width();
-        const int dh = depth.get_height();
-
-        rs2_intrinsics intrin =
-            depth.get_profile().as<rs2::video_stream_profile>().get_intrinsics();
-
-        std::lock_guard<std::mutex> guard(g_lock);
-
-        g_color.data.assign(color_px, color_px + color.get_width() * color.get_height() * 3);
-        g_color.width = color.get_width();
-        g_color.height = color.get_height();
-        g_color.channels = 3;
-        g_color.valid = true;
-
-        g_depth.data.assign(depth_map_px,
-                            depth_map_px + colormap.get_width() * colormap.get_height() * 3);
-        g_depth.width = colormap.get_width();
-        g_depth.height = colormap.get_height();
-        g_depth.channels = 3;
-        g_depth.valid = true;
-
-        if (ir) {
-            const auto* ir_px = static_cast<const uint8_t*>(ir.get_data());
-            g_ir.data.assign(ir_px, ir_px + ir.get_width() * ir.get_height());
-            g_ir.width = ir.get_width();
-            g_ir.height = ir.get_height();
-            g_ir.channels = 1;
-            g_ir.valid = true;
-        }
-
-        g_depth_raw.assign(depth_raw_px, depth_raw_px + dw * dh);
-        g_depth_w = dw;
-        g_depth_h = dh;
-        g_intrin = intrin;
-        g_intrin_valid = true;
     }
 }
 
@@ -243,7 +275,12 @@ struct FeedState {
 ssize_t feed_reader(void* cls, uint64_t /*pos*/, char* buf, size_t max) {
     auto* st = static_cast<FeedState*>(cls);
 
-    if (st->offset >= st->chunk.size()) {
+    // Returning 0 from an MHD content reader signals end-of-stream, so we must
+    // never return 0 mid-stream: loop until we have bytes to hand out (or the
+    // server is shutting down, in which case we end the stream cleanly).
+    while (st->offset >= st->chunk.size()) {
+        if (!g_running.load()) return MHD_CONTENT_READER_END_OF_STREAM;
+
         // Throttle to ~30 fps of encoding work; thread-per-connection makes
         // sleeping here safe (it only blocks this one client's stream).
         if (st->primed) std::this_thread::sleep_for(std::chrono::milliseconds(33));
@@ -252,10 +289,12 @@ ssize_t feed_reader(void* cls, uint64_t /*pos*/, char* buf, size_t max) {
         Image img;
         if (!snapshot(st->key, img)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            return 0;  // no frame yet; MHD will call us again
+            continue;  // no frame yet (camera warming up or disconnected)
         }
 
         std::string jpeg = jpeg_encode(img.data.data(), img.width, img.height, img.channels);
+        if (jpeg.empty()) continue;  // encode failed; try the next frame
+
         st->chunk = "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " +
                     std::to_string(jpeg.size()) + "\r\n\r\n" + jpeg + "\r\n";
         st->offset = 0;
@@ -273,6 +312,7 @@ MHD_Result send_buffer(struct MHD_Connection* conn, unsigned int status,
                        const std::string& body, const char* content_type) {
     struct MHD_Response* resp = MHD_create_response_from_buffer(
         body.size(), const_cast<char*>(body.data()), MHD_RESPMEM_MUST_COPY);
+    if (resp == nullptr) return MHD_NO;
     MHD_add_response_header(resp, "Content-Type", content_type);
     MHD_add_response_header(resp, "Cache-Control", "no-cache, no-store, must-revalidate");
     MHD_Result ret = MHD_queue_response(conn, status, resp);
@@ -285,6 +325,10 @@ MHD_Result send_feed(struct MHD_Connection* conn, const std::string& key) {
     st->key = key;
     struct MHD_Response* resp =
         MHD_create_response_from_callback(MHD_SIZE_UNKNOWN, 64 * 1024, &feed_reader, st, &feed_free);
+    if (resp == nullptr) {
+        delete st;  // MHD didn't take ownership, so feed_free won't run
+        return MHD_NO;
+    }
     MHD_add_response_header(resp, "Content-Type",
                             "multipart/x-mixed-replace; boundary=frame");
     MHD_add_response_header(resp, "Cache-Control", "no-cache, no-store, must-revalidate");
@@ -293,19 +337,29 @@ MHD_Result send_feed(struct MHD_Connection* conn, const std::string& key) {
     return ret;
 }
 
-std::string api_distance(struct MHD_Connection* conn) {
+// Fills `body` with a JSON response and returns the HTTP status to send.
+unsigned int api_distance(struct MHD_Connection* conn, std::string& body) {
     const char* xs = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "x");
     const char* ys = MHD_lookup_connection_value(conn, MHD_GET_ARGUMENT_KIND, "y");
-    if (xs == nullptr || ys == nullptr) return "";
+    if (xs == nullptr || ys == nullptr) {
+        body = "{\"error\":\"x and y query params required\"}";
+        return MHD_HTTP_BAD_REQUEST;
+    }
 
     int x = std::atoi(xs);
     int y = std::atoi(ys);
 
     std::lock_guard<std::mutex> guard(g_lock);
-    if (!g_intrin_valid || g_depth_raw.empty()) return "";
+    if (!g_intrin_valid || g_depth_raw.empty()) {
+        body = "{\"error\":\"no depth data available\"}";
+        return MHD_HTTP_SERVICE_UNAVAILABLE;
+    }
 
-    x = std::max(0, std::min(x, g_intrin.width - 1));
-    y = std::max(0, std::min(y, g_intrin.height - 1));
+    // Clamp against the raw buffer's own dimensions (which back the index
+    // below), not the intrinsics, so the read stays in bounds even if the two
+    // ever diverge.
+    x = std::max(0, std::min(x, g_depth_w - 1));
+    y = std::max(0, std::min(y, g_depth_h - 1));
 
     float distance = static_cast<float>(g_depth_raw[y * g_depth_w + x]) * g_depth_scale;
     float pixel[2] = {static_cast<float>(x), static_cast<float>(y)};
@@ -317,7 +371,8 @@ std::string api_distance(struct MHD_Connection* conn) {
                   "{\"x\":%d,\"y\":%d,\"distance_m\":%.3f,"
                   "\"point_3d\":[%.4f,%.4f,%.4f]}",
                   x, y, distance, point[0], point[1], point[2]);
-    return buf;
+    body = buf;
+    return MHD_HTTP_OK;
 }
 
 std::string api_stream_info() {
@@ -552,16 +607,15 @@ MHD_Result handle_request(void* /*cls*/, struct MHD_Connection* conn, const char
         return send_buffer(conn, MHD_HTTP_OK, api_stream_info(), "application/json");
     }
     if (path == "/api/distance") {
-        std::string body = api_distance(conn);
-        if (body.empty()) {
-            return send_buffer(conn, MHD_HTTP_SERVICE_UNAVAILABLE,
-                               "{\"error\":\"no depth data available\"}", "application/json");
-        }
-        return send_buffer(conn, MHD_HTTP_OK, body, "application/json");
+        std::string body;
+        unsigned int status = api_distance(conn, body);
+        return send_buffer(conn, status, body, "application/json");
     }
 
     return send_buffer(conn, MHD_HTTP_NOT_FOUND, "not found", "text/plain");
 }
+
+void on_signal(int /*sig*/) { g_running.store(false); }
 
 }  // namespace
 
@@ -572,6 +626,11 @@ MHD_Result handle_request(void* /*cls*/, struct MHD_Connection* conn, const char
 int main() {
     std::printf("RealSense Visualizer starting...\n");
     std::fflush(stdout);
+
+    // Clear g_running on SIGTERM (systemd stop) / SIGINT so the capture loop
+    // exits and we shut down cleanly. Writing an atomic flag is signal-safe.
+    std::signal(SIGTERM, on_signal);
+    std::signal(SIGINT, on_signal);
 
     // Start the HTTP server first so the dashboard is reachable while we wait
     // for the camera to appear.
