@@ -81,8 +81,12 @@ void jpeg_on_error(j_common_ptr cinfo) {
 std::string jpeg_encode(const uint8_t* data, int width, int height, int channels) {
     jpeg_compress_struct cinfo;
     JpegErrorMgr jerr;
-    unsigned char* out = nullptr;
-    unsigned long out_size = 0;
+    // volatile: jpeg_mem_dest/jpeg_finish_compress write these after the setjmp
+    // recovery point, and a non-volatile automatic changed between setjmp and
+    // longjmp is indeterminate after the longjmp (C11 7.13.2.1) — and we free
+    // out in the recovery path, so a stale value there would be a bad free.
+    unsigned char* volatile out = nullptr;
+    unsigned long volatile out_size = 0;
     volatile bool created = false;
 
     // Wire the error handler, then establish the recovery point *before* any
@@ -99,7 +103,10 @@ std::string jpeg_encode(const uint8_t* data, int width, int height, int channels
 
     jpeg_create_compress(&cinfo);
     created = true;
-    jpeg_mem_dest(&cinfo, &out, &out_size);
+    // Cast away volatile only to hand the addresses to libjpeg's C API; the
+    // qualifier's job is to keep the values live across the setjmp/longjmp.
+    jpeg_mem_dest(&cinfo, const_cast<unsigned char**>(&out),
+                  const_cast<unsigned long*>(&out_size));
 
     cinfo.image_width = width;
     cinfo.image_height = height;
@@ -171,10 +178,26 @@ void capture_loop() {
     cfg.enable_stream(RS2_STREAM_DEPTH, kWidth, kHeight, RS2_FORMAT_Z16, kFps);
     cfg.enable_stream(RS2_STREAM_INFRARED, 1, kWidth, kHeight, RS2_FORMAT_Y8, kFps);
 
+    // Mark all streams stale (so feeds/API stop serving a frame from a camera
+    // that's gone) and back off before retrying. Shared by every catch below.
+    auto recover = []() {
+        {
+            std::lock_guard<std::mutex> guard(g_lock);
+            g_color.valid = false;
+            g_depth.valid = false;
+            g_ir.valid = false;
+            g_intrin_valid = false;
+        }
+        for (int i = 0; i < 10 && g_running.load(); ++i)
+            std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    };
+
     // Outer loop: (re)start the pipeline and stream frames. librealsense throws
-    // rs2::error on a hardware fault (e.g. USB unplug mid-stream); catching it
-    // here — rather than letting it escape the thread and call std::terminate —
-    // lets the server stay up and reconnect when the camera returns.
+    // rs2::error on a hardware fault (e.g. USB unplug mid-stream); the per-frame
+    // body also allocates ~1MB, which can throw std::bad_alloc under memory
+    // pressure on constrained targets. Catching both here — rather than letting
+    // either escape the thread and call std::terminate — keeps the HTTP server
+    // up so it can reconnect when conditions recover.
     while (g_running.load()) {
         try {
             rs2::pipeline pipe;
@@ -268,19 +291,13 @@ void capture_loop() {
         } catch (const rs2::error& e) {
             std::fprintf(stderr, "RealSense error: %s - reconnecting\n", e.what());
             std::fflush(stderr);
-
-            // Mark streams stale so feeds/API stop serving the last frame from a
-            // camera that's no longer there.
-            {
-                std::lock_guard<std::mutex> guard(g_lock);
-                g_color.valid = false;
-                g_depth.valid = false;
-                g_ir.valid = false;
-                g_intrin_valid = false;
-            }
-
-            for (int i = 0; i < 10 && g_running.load(); ++i)
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+            recover();
+        } catch (const std::exception& e) {
+            // e.g. std::bad_alloc from the per-frame buffers under memory
+            // pressure — not an rs2::error, but must not escape the thread.
+            std::fprintf(stderr, "Capture loop error: %s - reconnecting\n", e.what());
+            std::fflush(stderr);
+            recover();
         }
     }
 }
