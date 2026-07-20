@@ -6,6 +6,14 @@ echo "========================================================"
 echo "Building realsense-visualizer (librealsense2 + libmicrohttpd)"
 echo "========================================================"
 
+# This must run inside the Avocado SDK cross environment, which exports the
+# variables below. Fail early with a clear message if it doesn't, rather than
+# emitting a broken toolchain file that fails later as a confusing host build.
+if [ -z "${OECORE_TARGET_SYSROOT:-}" ]; then
+    echo "OECORE_TARGET_SYSROOT is not set; run this via 'avocado build'" >&2
+    exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # Generate a CMake toolchain file from the SDK cross environment
 # ---------------------------------------------------------------------------
@@ -13,7 +21,7 @@ TOOLCHAIN_FILE="/tmp/avocado-toolchain.cmake"
 
 cat > "$TOOLCHAIN_FILE" <<EOF
 set(CMAKE_SYSTEM_NAME Linux)
-set(CMAKE_SYSROOT ${OECORE_TARGET_SYSROOT})
+set(CMAKE_SYSROOT "${OECORE_TARGET_SYSROOT}")
 set(CMAKE_C_COMPILER ${CROSS_COMPILE}gcc)
 set(CMAKE_CXX_COMPILER ${CROSS_COMPILE}g++)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)

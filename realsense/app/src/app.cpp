@@ -173,11 +173,6 @@ std::string json_escape(const std::string& s) {
 // ---------------------------------------------------------------------------
 
 void capture_loop() {
-    rs2::config cfg;
-    cfg.enable_stream(RS2_STREAM_COLOR, kWidth, kHeight, RS2_FORMAT_RGB8, kFps);
-    cfg.enable_stream(RS2_STREAM_DEPTH, kWidth, kHeight, RS2_FORMAT_Z16, kFps);
-    cfg.enable_stream(RS2_STREAM_INFRARED, 1, kWidth, kHeight, RS2_FORMAT_Y8, kFps);
-
     // Mark all streams stale (so feeds/API stop serving a frame from a camera
     // that's gone) and back off before retrying. Shared by every catch below.
     auto recover = []() {
@@ -200,6 +195,13 @@ void capture_loop() {
     // up so it can reconnect when conditions recover.
     while (g_running.load()) {
         try {
+            // Built inside the try so even an unlikely throw during config
+            // setup can't escape the thread.
+            rs2::config cfg;
+            cfg.enable_stream(RS2_STREAM_COLOR, kWidth, kHeight, RS2_FORMAT_RGB8, kFps);
+            cfg.enable_stream(RS2_STREAM_DEPTH, kWidth, kHeight, RS2_FORMAT_Z16, kFps);
+            cfg.enable_stream(RS2_STREAM_INFRARED, 1, kWidth, kHeight, RS2_FORMAT_Y8, kFps);
+
             rs2::pipeline pipe;
             rs2::pipeline_profile profile = pipe.start(cfg);
 
@@ -319,35 +321,43 @@ struct FeedState {
 ssize_t feed_reader(void* cls, uint64_t /*pos*/, char* buf, size_t max) {
     auto* st = static_cast<FeedState*>(cls);
 
-    // Returning 0 from an MHD content reader signals end-of-stream, so we must
-    // never return 0 mid-stream: loop until we have bytes to hand out (or the
-    // server is shutting down, in which case we end the stream cleanly).
-    while (st->offset >= st->chunk.size()) {
-        if (!g_running.load()) return MHD_CONTENT_READER_END_OF_STREAM;
+    // feed_reader runs in an MHD-owned C worker thread. snapshot()/jpeg_encode/
+    // chunk concatenation all allocate and can throw std::bad_alloc under memory
+    // pressure; an exception unwinding into MHD's C frames is UB, so we contain
+    // everything here and end the response with an error instead.
+    try {
+        // Returning 0 from an MHD content reader signals end-of-stream, so we
+        // must never return 0 mid-stream: loop until we have bytes to hand out
+        // (or the server is shutting down, in which case we end cleanly).
+        while (st->offset >= st->chunk.size()) {
+            if (!g_running.load()) return MHD_CONTENT_READER_END_OF_STREAM;
 
-        Image img;
-        uint64_t seq = 0;
-        // Only encode when a genuinely new frame is available; this paces the
-        // feed to the capture rate instead of re-encoding the same frame. Poll
-        // at half the frame interval so we pick up each new frame promptly.
-        if (!snapshot(st->key, img, seq) || seq == st->last_seq) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000 / (kFps * 2)));
-            continue;  // no frame, or no new frame since last encode
+            Image img;
+            uint64_t seq = 0;
+            // Only encode when a genuinely new frame is available; this paces
+            // the feed to the capture rate instead of re-encoding the same
+            // frame. Poll at half the frame interval to pick up frames promptly.
+            if (!snapshot(st->key, img, seq) || seq == st->last_seq) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1000 / (kFps * 2)));
+                continue;  // no frame, or no new frame since last encode
+            }
+            st->last_seq = seq;
+
+            std::string jpeg = jpeg_encode(img.data.data(), img.width, img.height, img.channels);
+            if (jpeg.empty()) continue;  // encode failed; try the next frame
+
+            st->chunk = "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " +
+                        std::to_string(jpeg.size()) + "\r\n\r\n" + jpeg + "\r\n";
+            st->offset = 0;
         }
-        st->last_seq = seq;
 
-        std::string jpeg = jpeg_encode(img.data.data(), img.width, img.height, img.channels);
-        if (jpeg.empty()) continue;  // encode failed; try the next frame
-
-        st->chunk = "--frame\r\nContent-Type: image/jpeg\r\nContent-Length: " +
-                    std::to_string(jpeg.size()) + "\r\n\r\n" + jpeg + "\r\n";
-        st->offset = 0;
+        const size_t n = std::min(max, st->chunk.size() - st->offset);
+        std::memcpy(buf, st->chunk.data() + st->offset, n);
+        st->offset += n;
+        return static_cast<ssize_t>(n);
+    } catch (...) {
+        return MHD_CONTENT_READER_END_WITH_ERROR;
     }
-
-    const size_t n = std::min(max, st->chunk.size() - st->offset);
-    std::memcpy(buf, st->chunk.data() + st->offset, n);
-    st->offset += n;
-    return static_cast<ssize_t>(n);
 }
 
 void feed_free(void* cls) { delete static_cast<FeedState*>(cls); }
@@ -659,42 +669,50 @@ MHD_Result handle_request(void* /*cls*/, struct MHD_Connection* conn, const char
                           const char* method, const char* /*version*/,
                           const char* /*upload_data*/, size_t* /*upload_data_size*/,
                           void** /*con_cls*/) {
-    if (std::strcmp(method, "GET") != 0) {
-        return send_buffer(conn, MHD_HTTP_METHOD_NOT_ALLOWED, "method not allowed", "text/plain");
-    }
+    // Runs in an MHD C worker thread; the string/response allocations below can
+    // throw, so contain everything and fail the request rather than let an
+    // exception unwind into MHD's C frames.
+    try {
+        if (std::strcmp(method, "GET") != 0) {
+            return send_buffer(conn, MHD_HTTP_METHOD_NOT_ALLOWED, "method not allowed",
+                               "text/plain");
+        }
 
-    const std::string path = url;
+        const std::string path = url;
 
-    if (path == "/") {
-        // kDashboardHtml has static storage, so serve it as a persistent buffer
-        // (no per-request allocation or copy of the whole page).
-        struct MHD_Response* resp = MHD_create_response_from_buffer(
-            sizeof(kDashboardHtml) - 1, const_cast<char*>(kDashboardHtml),
-            MHD_RESPMEM_PERSISTENT);
-        if (resp == nullptr) return MHD_NO;
-        MHD_add_response_header(resp, "Content-Type", "text/html");
-        MHD_Result ret = MHD_queue_response(conn, MHD_HTTP_OK, resp);
-        MHD_destroy_response(resp);
-        return ret;
-    }
-    if (path == "/feed/color") return send_feed(conn, "color");
-    if (path == "/feed/depth") return send_feed(conn, "depth");
-    if (path == "/feed/infrared") return send_feed(conn, "infrared");
+        if (path == "/") {
+            // kDashboardHtml has static storage, so serve it as a persistent
+            // buffer (no per-request allocation or copy of the whole page).
+            struct MHD_Response* resp = MHD_create_response_from_buffer(
+                sizeof(kDashboardHtml) - 1, const_cast<char*>(kDashboardHtml),
+                MHD_RESPMEM_PERSISTENT);
+            if (resp == nullptr) return MHD_NO;
+            MHD_add_response_header(resp, "Content-Type", "text/html");
+            MHD_Result ret = MHD_queue_response(conn, MHD_HTTP_OK, resp);
+            MHD_destroy_response(resp);
+            return ret;
+        }
+        if (path == "/feed/color") return send_feed(conn, "color");
+        if (path == "/feed/depth") return send_feed(conn, "depth");
+        if (path == "/feed/infrared") return send_feed(conn, "infrared");
 
-    if (path == "/api/device") {
-        std::lock_guard<std::mutex> guard(g_lock);
-        return send_buffer(conn, MHD_HTTP_OK, g_device_json, "application/json");
-    }
-    if (path == "/api/stream_info") {
-        return send_buffer(conn, MHD_HTTP_OK, api_stream_info(), "application/json");
-    }
-    if (path == "/api/distance") {
-        std::string body;
-        unsigned int status = api_distance(conn, body);
-        return send_buffer(conn, status, body, "application/json");
-    }
+        if (path == "/api/device") {
+            std::lock_guard<std::mutex> guard(g_lock);
+            return send_buffer(conn, MHD_HTTP_OK, g_device_json, "application/json");
+        }
+        if (path == "/api/stream_info") {
+            return send_buffer(conn, MHD_HTTP_OK, api_stream_info(), "application/json");
+        }
+        if (path == "/api/distance") {
+            std::string body;
+            unsigned int status = api_distance(conn, body);
+            return send_buffer(conn, status, body, "application/json");
+        }
 
-    return send_buffer(conn, MHD_HTTP_NOT_FOUND, "not found", "text/plain");
+        return send_buffer(conn, MHD_HTTP_NOT_FOUND, "not found", "text/plain");
+    } catch (...) {
+        return MHD_NO;
+    }
 }
 
 void on_signal(int /*sig*/) { g_running.store(false); }
