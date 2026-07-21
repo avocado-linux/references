@@ -1,0 +1,128 @@
+{
+  "distro_release": "2024",
+  "targets": {
+    "jetson-orin-nano-devkit": {
+      "extensions": {
+        "avocado-bsp-jetson-orin-nano-devkit": {
+          "source": {
+            "package": "avocado-bsp-jetson-orin-nano-devkit",
+            "type": "package",
+            "version": "*"
+          }
+        },
+        "avocado-ext-dev": {
+          "source": {
+            "package": "avocado-ext-dev",
+            "type": "package",
+            "version": "*"
+          }
+        },
+        "avocado-ext-sshd-dev": {
+          "source": {
+            "package": "avocado-ext-sshd-dev",
+            "type": "package",
+            "version": "*"
+          }
+        }
+      },
+      "initramfs": {
+        "avocado-pkg-initramfs": "0.0.0-r0.1.avocado_jetson_orin_nano_devkit",
+        "packagegroup-avocado-initramfs-modules-6.6.127-yocto-standard": "6.6.127+git0+45f69741c7_70af2998be-r0.4.avocado_jetson_orin_nano_devkit"
+      },
+      "kernel-versions": {
+        "initramfs": "6.6.127-yocto-standard",
+        "rootfs": "6.6.127-yocto-standard",
+        "runtimes/dev": "6.6.127-yocto-standard",
+        "runtimes/dev/extensions/app": "6.6.127-yocto-standard",
+        "runtimes/dev/extensions/avocado-bsp-jetson-orin-nano-devkit": "6.6.127-yocto-standard",
+        "runtimes/dev/extensions/avocado-ext-dev": "6.6.127-yocto-standard",
+        "runtimes/dev/extensions/avocado-ext-sshd-dev": "6.6.127-yocto-standard",
+        "target-sysroot": "6.6.127-yocto-standard"
+      },
+      "kernels": {
+        "6.6.127-yocto-standard": {
+          "kernel-image-6.6.127-yocto-standard": "6.6.127+git0+45f69741c7_70af2998be-r0.4.avocado_jetson_orin_nano_devkit"
+        }
+      },
+      "repo-snapshot": {
+        "channel": "edge",
+        "created": "2026-07-08T02:58:32Z",
+        "release": "2024",
+        "repo_url": "https://repo.avocadolinux.org",
+        "snapshot": "16"
+      },
+      "rootfs": {
+        "avocado-pkg-rootfs": "0.0.0-r0.1.avocado_jetson_orin_nano_devkit",
+        "kernel-image-6.6.127-yocto-standard": "6.6.127+git0+45f69741c7_70af2998be-r0.4.avocado_jetson_orin_nano_devkit",
+        "packagegroup-avocado-rootfs-modules-6.6.127-yocto-standard": "6.6.127+git0+45f69741c7_70af2998be-r0.4.avocado_jetson_orin_nano_devkit"
+      },
+      "runtimes": {
+        "dev": {
+          "extensions": {
+            "app": {
+              "packages": {
+                "opencv": "4.9.0-r0.4.armv8a_tegra234",
+                "v4l-utils": "1.26.1+git0+4aee01a027-r0.0.armv8a_tegra"
+              }
+            },
+            "avocado-bsp-jetson-orin-nano-devkit": {
+              "packages": {
+                "cuda-cudart": "12.6.68+1-r0.0.armv8a_tegra",
+                "linux-firmware-rtl8168": "20240909-r0.2.noarch",
+                "linux-firmware-rtl8822": "20240909-r0.2.noarch",
+                "swupdate": "2025.12-r0.2.armv8a",
+                "tegra-configs-udev": "36.5.0+20260115194252-r0.3.armv8a_tegra",
+                "tegra-libraries-cuda": "36.5.0+20260115194252-r0.0.armv8a_tegra",
+                "tegra-nvphs": "36.5.0-r0.0.armv8a",
+                "tegra-nvpower": "36.5.0+20260115194252-r0.0.avocado_jetson_orin_nano_devkit",
+                "tegra-nvsciipc": "36.5.0-r0.0.armv8a",
+                "tegra-nvstartup": "36.5.0-r0.0.armv8a",
+                "tegra-redundant-boot-base": "36.5.0+20260115194252-r0.0.armv8a_tegra",
+                "wireless-regdb-static": "2026.02.04-r0.0.noarch"
+              }
+            },
+            "avocado-ext-dev": {
+              "packages": {
+                "avocado-hitl": "1.0-r0.0.avocado_jetson_orin_nano_devkit",
+                "gptfdisk": "1.0.9-r0.8.armv8a",
+                "rsync": "3.2.7-r0.1.armv8a",
+                "util-linux-findmnt": "2.39.3-r0.8.armv8a",
+                "util-linux-lsblk": "2.39.3-r0.8.armv8a",
+                "util-linux-partx": "2.39.3-r0.8.armv8a",
+                "util-linux-sfdisk": "2.39.3-r0.8.armv8a"
+              }
+            },
+            "avocado-ext-sshd-dev": {
+              "packages": {
+                "openssh": "9.6p1-r0.0.armv8a"
+              }
+            },
+            "config": {}
+          },
+          "packages": {
+            "avocado-runtime": "0.0.0-r0.2.avocado_jetson_orin_nano_devkit"
+          }
+        }
+      },
+      "sdk": {
+        "aarch64": {
+          "avocado-sdk-bootstrap": "0.0.0-r0.0.aarch64_avocadosdk",
+          "avocado-sdk-jetson-orin-nano-devkit": "0.0.0-r0.1.all_avocadosdk",
+          "avocado-sdk-toolchain": "0.0.0-r0.21.aarch64_avocadosdk",
+          "nativesdk-avocado-hitl": "1.0-r0.14.aarch64_avocadosdk",
+          "nativesdk-cmake": "3.28.3-r0.16.aarch64_avocadosdk",
+          "nativesdk-openssh-scp": "9.6p1-r0.13.aarch64_avocadosdk",
+          "nativesdk-openssh-ssh": "9.6p1-r0.13.aarch64_avocadosdk",
+          "nativesdk-rsync": "3.2.7-r0.12.aarch64_avocadosdk"
+        }
+      },
+      "target-sysroot": {
+        "avocado-sdk-target-sysroot": "0.0.0-r0.1.avocado_jetson_orin_nano_devkit",
+        "executorch-dev": "1.3.1-r0.0.armv8a",
+        "executorch-staticdev": "1.3.1-r0.0.armv8a",
+        "opencv-dev": "4.9.0-r0.4.armv8a_tegra234"
+      }
+    }
+  },
+  "version": 7
+}

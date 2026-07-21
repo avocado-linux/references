@@ -1,0 +1,104 @@
+cli_requirement: ">=0.26.0"
+
+default_target: "jetson-orin-nano-devkit"
+
+# Live semantic segmentation on the PORTABLE ExecuTorch CPU runtime -- no
+# accelerator, no PyTorch on the device. The model (a committed .pte) and the
+# runner binary are identical across every target below (NVIDIA Jetson aarch64,
+# NXP Cortex-A53, NXP Cortex-A55): one artifact, many boards.
+#
+# Phase 1 is deliberately feed-only and pip-free: the .pte is exported once,
+# offline (tools/export_model.py) and committed, so `avocado build` is just a
+# few-second C++ cross-compile against the ExecuTorch runtime from the feed.
+supported_targets:
+  - jetson-orin-nano-devkit
+  - imx8mp-evk
+  - imx93-evk
+
+distro:
+  release: 2024
+  channel: edge
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - config
+      - app
+    packages:
+      avocado-runtime: "*"
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Live semantic segmentation (DeepLabV3-MobileNetV3) on the portable ExecuTorch CPU runtime"
+    overlay: app/overlay
+    packages:
+      # The runner is cross-compiled in the SDK and the committed .pte is staged
+      # into the extension sysroot by app-install.sh.
+      app:
+        compile: app
+        install: app-install.sh
+
+      # --- Runtime shared libs, from the feed (deduplicated). ExecuTorch itself
+      #     is linked statically into the binary, so there is no executorch
+      #     package on the device. ---
+      opencv: "*"                   # camera capture, resize, JPEG encode
+      v4l-utils: "*"                # v4l2-ctl, for camera bring-up debugging
+      kernel-module-uvcvideo: "*"   # USB UVC webcam
+
+    enable_services:
+      - executorch-segmentation.service
+    on_merge:
+      - systemctl daemon-reload
+      - systemctl start --no-block executorch-segmentation.service
+    on_unmerge:
+      - systemctl stop executorch-segmentation.service
+
+  config:
+    types:
+      - confext
+    version: "0.1.0"
+    # NOT FOR PRODUCTION: empty root password for bring-up convenience.
+    users:
+      root:
+        password: ""
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  compile:
+    app:
+      compile: app-compile.sh
+      clean: app-clean.sh
+      packages:
+        # Target sysroot: headers + libraries the cross-compiler links against.
+        executorch-dev: "*"       # ExecuTorch headers + exported CMake package
+        executorch-staticdev: "*" # the portable runtime static archives (.a)
+        opencv-dev: "*"
+
+  packages:
+    # Host build tools only. Note: NO nativesdk-uv / torch here -- Phase 1 does
+    # not export at build time (the .pte is committed).
+    avocado-sdk-toolchain: "*"
+    nativesdk-cmake: "*"

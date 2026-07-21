@@ -1,0 +1,7 @@
+app/src/build/
+.avocado/
+.avocado-state
+.DS_Store
+
+# NOTE: app/models/segmentation.pte IS committed on purpose (Phase 1 keeps the
+# build pip-free by shipping the exported model). Do not add app/models/ here.

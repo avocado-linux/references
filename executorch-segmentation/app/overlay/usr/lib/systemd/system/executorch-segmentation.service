@@ -1,0 +1,17 @@
+[Unit]
+Description=ExecuTorch live semantic segmentation (DeepLabV3-MobileNetV3, portable CPU)
+After=network.target
+ConditionPathExists=/dev/video0
+
+[Service]
+Type=simple
+# Live segmentation dashboard (MJPEG) at http://<board-ip>:8080/
+Environment=PORT=8080
+# Camera: a V4L2 index ("0") or device path ("/dev/video0").
+Environment=CAMERA=0
+ExecStart=/usr/bin/executorch-segmentation --port ${PORT} --camera ${CAMERA}
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
