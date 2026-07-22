@@ -1,6 +1,6 @@
 cli_requirement: ">=0.26.0"
 
-default_target: "jetson-orin-nano-devkit"
+default_target: "imx93-frdm"
 
 # Live semantic segmentation on the PORTABLE ExecuTorch CPU runtime -- no
 # accelerator, no PyTorch on the device. The model (a committed .pte) and the
@@ -14,6 +14,7 @@ supported_targets:
   - jetson-orin-nano-devkit
   - imx8mp-evk
   - imx93-evk
+  - imx93-frdm
 
 distro:
   release: 2024
@@ -85,7 +86,7 @@ extensions:
         password: ""
 
 sdk:
-  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
 
   compile:
     app:

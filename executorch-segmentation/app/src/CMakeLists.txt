@@ -41,4 +41,12 @@ target_link_libraries(executorch-segmentation PRIVATE
   Threads::Threads
 )
 
+# OpenCV's libopencv_videoio.so is built against FFmpeg (libavcodec/format/util/
+# swscale), which isn't staged in every target's SDK sysroot (e.g. imx93). We
+# don't call FFmpeg ourselves, and those libraries are present on the device as
+# OpenCV's own runtime dependencies, so let the linker defer those shared-lib
+# symbols to runtime instead of failing at link time. Only affects symbols
+# referenced by shared libraries -- our own undefined symbols still error.
+target_link_options(executorch-segmentation PRIVATE -Wl,--allow-shlib-undefined)
+
 install(TARGETS executorch-segmentation RUNTIME DESTINATION bin)

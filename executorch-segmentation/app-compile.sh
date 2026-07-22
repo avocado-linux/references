@@ -33,6 +33,14 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 EOF
 
 cd app/src
+
+# Configure from a clean CMake cache. CMake bakes the absolute cross-compiler
+# path into build/CMakeCache.txt and does NOT re-detect it when a cache exists,
+# so a cache left over from a different target (e.g. an earlier Jetson build)
+# would keep pointing at the wrong SDK toolchain after you switch targets.
+# Removing it forces re-detection from the current SDK environment.
+rm -rf build
+
 cmake -B build \
     -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
     -DCMAKE_INSTALL_PREFIX=/usr \

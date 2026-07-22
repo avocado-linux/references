@@ -1,6 +1,7 @@
 app/src/build/
 .avocado/
 .avocado-state
+.avocado-desktop.json
 .DS_Store
 
 # NOTE: app/models/segmentation.pte IS committed on purpose (Phase 1 keeps the

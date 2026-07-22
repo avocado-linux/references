@@ -1,102 +1,163 @@
-# Getting Started with executorch-segmentation
+# Getting Started with ExecuTorch Semantic Segmentation
 
-Go from zero to a board running live semantic segmentation on the portable
-ExecuTorch CPU runtime, streamed to your browser.
+This guide walks you through building and running the ExecuTorch semantic
+segmentation reference on Avocado OS. The app cross-compiles a C++ binary that
+runs a DeepLabV3-MobileNetV3 model on a USB camera with the portable ExecuTorch
+CPU runtime, and streams the colorized per-pixel mask to your browser.
 
 ## Prerequisites
 
-- **Avocado CLI** `>= 0.26.0` and Docker (the SDK runs in a container).
-- **A supported board:** `jetson-orin-nano-devkit`, `imx8mp-evk`, or `imx93-evk`.
-- **A USB webcam** (UVC).
-- Network reachability to the board (the dashboard is served over HTTP).
+- macOS 10.12+ or Linux (Ubuntu 22.04+, Fedora 39+)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running
+- The latest version of the [Avocado CLI](https://docs.peridio.com/guides/avocado-cli/overview)
 
-No PyTorch or pip is involved in the build — the model ships pre-exported.
+For hardware targets, you will also need:
+
+- Your target device and any required accessories (SD card, USB cable, serial console adapter)
+- A USB webcam (UVC)
+- See the [Support Matrix](https://docs.peridio.com/hardware/support-matrix) for your target's requirements
 
 ## Initialize
 
-```sh
-git clone https://github.com/avocado-linux/references.git
-cd references/executorch-segmentation
-export AVOCADO_TARGET=jetson-orin-nano-devkit   # or imx8mp-evk / imx93-evk
+Initialize a new project from this reference:
+
+```bash
+avocado init --reference executorch-segmentation executorch-segmentation
+cd executorch-segmentation
 ```
 
-The committed `app/models/segmentation.pte` is the DeepLabV3-MobileNetV3 model,
-already lowered to portable ExecuTorch. (To regenerate or swap it, see
-`app/models/README.md` — a one-time offline step, not part of the build.)
+To target specific hardware instead of the default, pass `--target`:
+
+```bash
+avocado init --reference executorch-segmentation --target imx93-evk executorch-segmentation
+cd executorch-segmentation
+```
 
 ## Install
 
-```sh
-avocado install
+Install the SDK toolchain, extension dependencies, and runtime packages:
+
+```bash
+avocado install -f
 ```
 
-Pulls the prebuilt feed packages: the ExecuTorch runtime dev/static libs
-(`executorch-dev`, `executorch-staticdev`), `opencv` + `opencv-dev`, the camera
-module, and the SDK toolchain + CMake. All binary — nothing is compiled here.
+This pulls the SDK container image and installs the C++ cross-compilation
+toolchain (`avocado-sdk-toolchain`, `nativesdk-cmake`), the ExecuTorch runtime
+development libraries (`executorch-dev`, `executorch-staticdev`), and OpenCV
+(`opencv-dev`).
 
 ## Build
 
-```sh
+Build the extensions and assemble the runtime image:
+
+```bash
 avocado build
 ```
 
-This is a **fast C++ cross-compile** (typically seconds): CMake links the runner
-against the ExecuTorch portable runtime (statically) and OpenCV from the target
-sysroot. There is no model export, no pip, and no network access at build time.
+The build step runs `app-compile.sh` inside the SDK container, which generates a
+CMake toolchain file from the SDK environment and cross-compiles the runner,
+linking the portable ExecuTorch runtime statically. No model export happens at
+build time — the DeepLabV3 model ships as a pre-exported, portable
+`app/models/segmentation.pte`, so the build is a fast C++ compile with no PyTorch
+or pip involved. Then `app-install.sh` copies the binary to
+`/usr/bin/executorch-segmentation` and the model into the extension sysroot.
 
-> **First-build things to verify.** This links a newer part of the feed than most
-> references. If the build stops:
-> - **ExecuTorch CMake targets / `executorch_target_link_options_shared_lib`** in
->   `app/src/CMakeLists.txt` — reconcile against the config `executorch-dev`
->   installs at `$OECORE_TARGET_SYSROOT/usr/lib/cmake/ExecuTorch/`. The
->   whole-archive wrap on `portable_ops_lib` is required, or `forward()` fails at
->   runtime with "operator not found".
-> - The reference links only what the portable-only `executorch` package builds
->   (`executorch`, `extension_module`, `extension_data_loader`,
->   `extension_flat_tensor`, `portable_ops`) — no recipe changes needed.
+## Provision
 
-## Deploy
+### NVIDIA Jetson
 
-```sh
-avocado provision -r dev      # then flash per your board (SD / eMMC / NVMe)
+```bash
+avocado provision -r dev --profile tegraflash
 ```
 
-- **Jetson Orin Nano:** flash to NVMe/SD per the board guide, then boot.
-- **i.MX8MP / i.MX93 EVK:** flash eMMC/SD per the board guide, then boot.
+Follow the USB disconnect/reconnect prompts during the flash process.
 
-`executorch-segmentation.service` starts on boot.
+### NXP i.MX 
+
+#### SD card
+Insert your SD card and provision:
+
+```bash
+avocado provision -r dev --profile sd
+```
+
+#### emmc
+Make sure to properly set the boot switch for serial downloader mode when flashing emmc!
+
+```bash
+avocado provision -r dev --profile uuu-emmc
+```
+
+
+Connect the USB webcam to the board before boot (or restart the service after
+plugging it in).
 
 ## Verify
 
-**1. Prove the runtime** (no camera needed) over SSH:
+Log in as `root` with an empty password. The `executorch-segmentation` service
+starts automatically on boot.
 
-```sh
+Confirm the runtime and model load correctly — this needs no camera:
+
+```bash
 executorch-segmentation --selftest
-# [selftest] output size = 1376256 (expected 1376256) PASS   # 21*256*256
 ```
 
-**2. Confirm the camera:**
+You should see:
 
-```sh
+```
+[selftest] output size = 1376256 (expected 1376256) PASS
+```
+
+Check the service and camera:
+
+```bash
+systemctl status executorch-segmentation
 ls /dev/video0
 ```
 
-**3. Open the dashboard** at `http://<board-ip>:8080/` — you'll see the live
-camera with a colorized segmentation mask blended over it, and the on-device FPS.
-Point it at a person, chair, bottle, potted plant, etc. (the PASCAL VOC classes).
+Then open `http://<board-ip>:8080/` in a browser. You will see the live camera
+feed with a colorized segmentation mask blended over it, plus the on-device
+inference rate. Point the camera at people, chairs, bottles, or potted plants
+(all PASCAL VOC classes).
 
-```sh
-journalctl -fu executorch-segmentation
+Watch the logs:
+
+```bash
+journalctl -u executorch-segmentation -f
 ```
 
 ## Customize
 
-- **Speed vs. detail:** lower `kInputSize` in `app/src/main.cpp` (and `INPUT_SIZE`
-  in `tools/export_model.py`, then re-export) for higher FPS at coarser masks.
-  Segmentation on a portable CPU is a few FPS at 256² — expect fewer on the
-  Cortex-A55 boards, more on the Jetson.
-- **Blend strength:** the `cv::addWeighted(...)` call in `main.cpp`.
-- **Different model:** edit `tools/export_model.py` — any torchvision segmentation
-  model that lowers to portable ops works; keep the `(1,3,H,W) -> (1,21,H,W)`
-  contract (or update `kNumClasses` + the palette).
-- **Pick a camera:** set `CAMERA=/dev/videoN` in the systemd unit.
+### Trade speed for detail
+
+Segmentation on a portable CPU is a few frames per second at 256×256 (fewer on
+the Cortex-A55 boards, more on the Jetson). Lower `kInputSize` in
+`app/src/main.cpp` for higher frame rates at a coarser mask — then update
+`INPUT_SIZE` in `tools/export_model.py` and re-export the model to match.
+
+### Adjust the overlay
+
+Change the blend strength in the `cv::addWeighted(...)` call in
+`app/src/main.cpp`.
+
+### Use a different model
+
+Edit `tools/export_model.py` and re-export (a one-time, offline step; see
+`app/models/README.md`). Any torchvision segmentation model that lowers to
+portable ExecuTorch operators works; keep the `(1,3,H,W) -> (1,21,H,W)` contract
+or update `kNumClasses` and the color palette in `main.cpp`.
+
+### Pick a camera
+
+Set `CAMERA=/dev/videoN` in
+`app/overlay/usr/lib/systemd/system/executorch-segmentation.service`.
+
+### Rebuild after changes
+
+After any change, rebuild and reprovision:
+
+```bash
+avocado build
+avocado provision -r dev
+```
