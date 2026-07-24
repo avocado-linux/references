@@ -144,7 +144,10 @@ teardown() {
   avocado clean -f               >>"$log" 2>&1 || true
   avocado unlock --no-tui        >>"$log" 2>&1 || true
   rm -f avocado.lock
-  git -C "$REPO_ROOT" clean -fdx -- "$ref" >>"$log" 2>&1 || true
+  # -X (ignored-only): strip gitignored build state but never touch untracked
+  # WIP files. Anything untracked-and-not-ignored is surfaced by the residual
+  # check below instead of being silently deleted.
+  git -C "$REPO_ROOT" clean -fdX -- "$ref" >>"$log" 2>&1 || true
   # Restore any *tracked* generated files that `avocado clean` removed on disk
   # (e.g. docker-registry/.avocado-state) without disturbing the avocado.yaml edit.
   while IFS= read -r p; do
