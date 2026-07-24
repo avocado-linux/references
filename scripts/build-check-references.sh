@@ -31,7 +31,8 @@
 #
 # Environment:
 #   LOG_DIR      directory for per-reference logs (default: a fresh mktemp dir)
-#   REPORT_FILE  markdown report path (default: $LOG_DIR/build-report.md)
+#   REPORT_FILE  markdown report path (default: $REPO_ROOT/scripts/build-report.md,
+#                the tracked master report; override to write it elsewhere)
 #   KEEP_GOING   1 = keep going after a reference fails (default); 0 = stop
 #   TARGET       force a single target for every reference (default: per-ref
 #                resolution via `avocado config show`)
@@ -149,6 +150,8 @@ teardown() {
   while IFS= read -r p; do
     [ -n "$p" ] && git -C "$REPO_ROOT" checkout -- "$p" 2>/dev/null || true
   done < <(git -C "$REPO_ROOT" ls-files --deleted -- "$ref" | grep -v '/avocado.yaml$')
+  # Undo any in-place rewrite of avocado.yaml by a teardown step (connect clean).
+  [ -f "$LOG_DIR/$ref.avocado.yaml.orig" ] && cp -p "$LOG_DIR/$ref.avocado.yaml.orig" avocado.yaml
 }
 
 # --- main loop --------------------------------------------------------------
@@ -170,6 +173,10 @@ for ((i = 0; i < COUNT; i++)); do
   fi
 
   cd "$REPO_ROOT/$ref"
+  # Snapshot avocado.yaml: teardown's `avocado connect clean` rewrites it in
+  # place (strips connect section / connect-config extension), so we restore
+  # this exact copy afterwards to avoid leaking edits into a tracked file.
+  cp -p avocado.yaml "$LOG_DIR/$ref.avocado.yaml.orig" 2>/dev/null || true
   target="$(resolve_target)"
   echo "    target: $target"
   ST_TARGET[$i]="$target"; ST_RESULT[$i]="⏳ running"; ST_INSTALL[$i]="⏳"
