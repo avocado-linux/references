@@ -1,0 +1,18 @@
+[Unit]
+Description=Jetson TensorRT GPU Inference Dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PYTHONPATH=/usr/lib/app/packages
+ExecStart=/usr/bin/python3 /usr/local/bin/app.py
+Restart=on-failure
+RestartSec=5
+
+# Override the HTTP port or point at your own model.
+#Environment=APP_PORT=8080
+#Environment=APP_MODEL=/usr/lib/app/models/model.onnx
+
+[Install]
+WantedBy=multi-user.target

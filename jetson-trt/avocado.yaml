@@ -1,0 +1,263 @@
+cli_requirement: ">=0.41.0"
+
+# Integrated NVIDIA GPU on a Jetson (tegra234/tegra264, JetPack 7 / L4T r39.2).
+# Testing target first is Jetson AGX Thor; Orin variants share the same feed.
+default_target: "jetson-agx-thor"
+supported_targets:
+  - jetson-agx-thor
+  - jetson-agx-orin
+  - jetson-orin-nano
+
+##
+## Distribution
+##
+
+distro:
+  release: 2026
+  channel: edge
+
+##
+## Runtimes
+##
+## Two ways to reach the same integrated GPU, pick one at provision time:
+##   -r native : host-native TensorRT inference (no container engine)
+##   -r docker : GPU inside a container via upstream docker + the NVIDIA
+##               Container Toolkit's `nvidia` runtime
+##
+## On JetPack 7 / wrynose the container path is NOT the old standalone
+## nvidia-docker wrapper: it is UPSTREAM docker-moby (v29) + nvidia-container-
+## toolkit. Unlike the x86-rtx reference (which uses CDI, --device
+## nvidia.com/gpu=all), the Tegra integrated GPU uses the toolkit's `nvidia`
+## runtime in CSV-passthrough mode: the host GPU userspace libs are bind-mounted
+## into the container from tegra-configs-container-csv, and the package's
+## nvidia-container-setup.service writes the runtime config at boot.
+##
+
+runtimes:
+  # Host-native: TensorRT runtime + the inference dashboard, no docker.
+  native:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-ext-ca-certificates
+      - avocado-bsp-{{ avocado.target }}
+      - app
+    packages:
+      avocado-runtime: "*"
+
+  # Containerized: upstream docker + NVIDIA Container Toolkit (the `nvidia`
+  # runtime, Tegra CSV passthrough) + a pre-seeded CUDA image that runs on the
+  # GPU via `docker run --runtime nvidia`.
+  docker:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-ext-ca-certificates
+      - avocado-bsp-{{ avocado.target }}
+      - docker
+      - nvidia-container-toolkit
+      - app-docker
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  # Trusted CA bundle for system SSL. Uses the ca-certificates EXTENSION (not the
+  # bare package): on Avocado's read-only rootfs, installing the package alone
+  # doesn't assemble /etc/ssl/certs/ca-certificates.crt (the
+  # update-ca-certificates postinst can't populate the trust store at runtime);
+  # the extension bakes the bundle into the trusted location at build time.
+  avocado-ext-ca-certificates:
+    source:
+      type: package
+      version: "*"
+
+  # The Jetson BSP already ships the integrated Tegra GPU driver stack
+  # (nvgpu + nvidia.ko + tegra-dce + tsecriscv + libcuda + tegra-libraries-cuda)
+  # and the GA10x/Blackwell GSP firmware via the base rootfs. Unlike the x86
+  # dGPU reference, NO supplemental driver extension / packagegroup is needed --
+  # pulling the BSP is enough to make /dev/nvhost-* + libcuda available.
+  avocado-bsp-{{ avocado.target }}:
+    source:
+      type: package
+      version: "*"
+
+  # Upstream docker engine (moby v29). Inlined -- like the docker-registry /
+  # docker-save references -- rather than pulling avocado-ext-docker, so the
+  # reference owns exactly the engine it needs and nothing else. The GPU demo
+  # runs with --network none, so no bridge networking (and no
+  # kernel-module-br-netfilter) is required. nvidia-container-toolkit owns
+  # /etc/docker/daemon.json (it registers the `nvidia` runtime), so this ext
+  # ships none.
+  docker:
+    version: "0.1.0"
+    enable_services:
+      - docker.service
+    on_merge:
+      - systemctl try-restart docker.service
+    on_unmerge:
+      - systemctl stop docker.service
+    packages:
+      docker: "*"
+
+  # NVIDIA Container Toolkit: the `nvidia` docker runtime for Tegra. This is the
+  # meta-tegra / JetPack 7 model (NOT the x86 CDI model). The
+  # nvidia-container-toolkit feed package (1.19.x) provides nvidia-ctk + the
+  # nvidia-container-runtime and ships nvidia-container-setup.service, which runs
+  # `nvidia-ctk config generate-default` at boot to write
+  # /run/nvidia-container-runtime/config.toml with the Tegra CSV alt-roots. It
+  # RDEPENDS libnvidia-container-tools + tegra-configs-container-csv +
+  # tegra-container-passthrough, which mount the host's integrated-GPU userspace
+  # (incl. nvidia-smi + libcuda) into the container (CSV passthrough). Our
+  # overlay only adds the docker daemon.json registering the `nvidia` runtime so
+  # `docker run --runtime nvidia` works. Inlined because there is no packaged
+  # avocado-ext-nvidia-container-toolkit for tegra (the packaged one is x86-only).
+  nvidia-container-toolkit:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "NVIDIA Container Toolkit for Tegra: the `nvidia` docker runtime (CSV passthrough)"
+    overlay: nvidia-container-toolkit/overlay
+    enable_services:
+      # Shipped by the nvidia-container-toolkit package (Before=docker.service);
+      # writes the runtime config.toml before docker starts.
+      - nvidia-container-setup.service
+    packages:
+      nvidia-container-toolkit: "*"
+      tegra-configs-container-csv: "*"
+
+  # --- native runtime app: ONNX -> TensorRT GPU inference dashboard ---
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "ONNX -> TensorRT GPU inference dashboard for Jetson"
+    overlay: app/overlay
+    packages:
+      app:
+        compile: app
+        install: app-install.sh
+      # TensorRT runtime + Python bindings + CUDA runtime, all from the feed.
+      # On Jetson the inference stack is feed packages, NOT a dedicated
+      # extension (there is no avocado-ext-nvidia-tensorrt -- that is the
+      # x86-only RTX story). There is NO package literally named "tensorrt-core"
+      # (the recipe ships the runtime as libnvinfer10 + plugins); python3-tensorrt
+      # RDEPENDS libnvinfer10 >= 10.16 + tensorrt-plugins-prebuilt +
+      # tegra-libraries-cuda, so it pulls the full TensorRT runtime by itself.
+      python3-tensorrt: "*"
+      cuda-cudart: "*"
+      cuda-libraries: "*"
+      python3: "*"
+      python3-numpy: "*"
+      curl: "*"
+    enable_services:
+      - app.service
+    on_merge:
+      - systemctl restart --no-block app.service
+    on_unmerge:
+      - systemctl stop app.service
+    sdk:
+      packages:
+        # host tool used by app-compile.sh to stage the pip deps
+        nativesdk-uv: "*"
+
+  # --- docker runtime app: run a CUDA container on the GPU (nvidia runtime) ---
+  app-docker:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Runs a pre-seeded CUDA container on the iGPU (nvidia runtime)"
+    overlay: app-docker/overlay
+    enable_services:
+      - gpu-container.service
+    on_merge:
+      # docker's own on_merge (try-restart) settles the daemon first.
+      - systemctl start docker.service
+      - systemctl restart --no-block gpu-container.service
+    on_unmerge:
+      - systemctl stop gpu-container.service
+    # Pull the CUDA image into the target /var at BUILD time (no runtime pull).
+    # NVIDIA has NOT published the classic Jetson base images (l4t-jetpack,
+    # l4t-base, l4t-cuda) for JetPack 7 -- l4t-jetpack tops out at r36.4.0 (JP6)
+    # and l4t-cuda at CUDA 12.6. So we use the standard multi-arch
+    # nvcr.io/nvidia/cuda image: 13.2.1 matches Thor's CUDA 13.2 driver and has a
+    # linux/arm64 variant. On Tegra the `nvidia` runtime CSV-mounts the host GPU
+    # userspace (incl. nvidia-smi) into the container, so the base image only
+    # needs to be a compatible arm64 userland.
+    #
+    # This is the GPU-access smoke test (nvidia-smi). The -runtime image has no
+    # TensorRT; to run trtexec in a container, switch to a JP7 framework
+    # container (e.g. nvcr.io/nvidia/pytorch:<YY.MM>-py3, confirm arm64/Thor) or
+    # a -devel image and install TensorRT.
+    docker_images:
+      - image: nvcr.io/nvidia/cuda
+        tag: 13.2.1-runtime-ubuntu24.04
+    var_files:
+      - var/lib/docker/**
+
+##
+## Images
+##
+## Bake the permissions profile into BOTH the rootfs and the initramfs, so root
+## can log in at the emergency/initramfs console (not just the fully-booted
+## system) when boot fails.
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password and is
+# referenced by rootfs/initramfs above so the console (incl. the emergency
+# shell) is reachable over serial/console and SSH. For production, define a
+# profile with a real hashed password and point rootfs/initramfs at it.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
+
+  # Needed to pull docker_images at build time (docker runtime only; harmless
+  # for the native runtime build).
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    app:
+      compile: app-compile.sh
+      clean: app-clean.sh
+
+  packages:
+    avocado-sdk-toolchain: "*"
+    nativesdk-docker: "*"

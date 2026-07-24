@@ -1,0 +1,23 @@
+[Unit]
+Description=NVIDIA CUDA GPU container demo (nvidia runtime)
+Documentation=https://docs.peridio.com
+Requires=docker.service
+After=docker.service nvidia-container-setup.service
+Wants=nvidia-container-setup.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# JetPack 7 / meta-tegra model: upstream docker + the `nvidia` runtime (Tegra
+# CSV passthrough). --runtime nvidia mounts the host's integrated-GPU userspace
+# (incl. nvidia-smi + libcuda) into the container from the CSV lists -- NOT the
+# x86 `--device nvidia.com/gpu=all` CDI path. --network none: the smoke test
+# needs no net. NVIDIA hasn't published l4t-jetpack for JP7, so this uses the
+# standard CUDA image (13.2.1 == Thor's CUDA 13.2, arm64). For real TensorRT in
+# a container, swap for a JP7 framework container (e.g. nvcr.io/nvidia/pytorch)
+# or a -devel image + install TensorRT, and run trtexec on a bind-mounted model.
+ExecStart=/usr/bin/docker run --rm --runtime nvidia --network none \
+    nvcr.io/nvidia/cuda:13.2.1-runtime-ubuntu24.04 nvidia-smi
+
+[Install]
+WantedBy=multi-user.target
