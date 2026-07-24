@@ -1,5 +1,3 @@
-cli_requirement: ">=0.26.0"
-
 default_target: imx8mp-evk
 
 supported_targets:
@@ -27,7 +25,6 @@ runtimes:
       # board must boot that DTB (see README) for /sys/class/remoteproc to
       # appear.
       - avocado-bsp-{{ avocado.target.board }}
-      - config
       - zephyr-m7
     packages:
       avocado-runtime: "*"
@@ -70,12 +67,23 @@ extensions:
     enable_services:
       - zephyr-m7-remoteproc.service
 
-  config:
-    types:
-      - confext
-    version: "0.1.0"
+##
+## Images
+##
 
-    # NOT FOR PRODUCTION: empty root password for easy console/ssh access.
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: empty root password for easy console/ssh access.
+permissions:
+  dev:
     users:
       root:
         password: ""
@@ -85,7 +93,7 @@ extensions:
 ##
 
 sdk:
-  image: "docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}"
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
 
   # Zephyr's `west update` fetches the Zephyr tree + modules (incl. hal_nxp)
   # over the network at compile time, so the SDK container needs host

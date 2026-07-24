@@ -1,5 +1,3 @@
-cli_requirement: ">=0.26.0"
-
 default_target: grinn-astra-1680-sbc
 supported_targets:
   - grinn-astra-1680-sbc
@@ -7,8 +5,6 @@ supported_targets:
 distro:
   release: 2024
   channel: edge
-  repo:
-    url: http://localhost:8080
 
 runtimes:
   dev:
@@ -16,7 +12,6 @@ runtimes:
       - avocado-ext-dev
       - avocado-ext-sshd-dev
       - avocado-bsp-{{ avocado.target }}
-      - config
       - weston
     packages:
       avocado-runtime: "*"
@@ -26,7 +21,6 @@ runtimes:
       - avocado-ext-dev
       - avocado-ext-sshd-dev
       - avocado-bsp-{{ avocado.target }}
-      - config
       - weston
       - deepx-driver
       - deepx-rt
@@ -63,14 +57,6 @@ extensions:
     on_merge:
       - systemctl daemon-reload
       - systemctl restart --no-block weston
-
-  config:
-    types:
-      - confext
-    version: "0.1.0"
-    users:
-      root:
-        password: ""
 
   deepx-driver:
     version: 2.4.1
@@ -247,8 +233,24 @@ extensions:
       htop: "*"
     version: "3.3.0"
 
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password and is
+# referenced by rootfs/initramfs above. Define additional profiles with real
+# users, groups, and hashed passwords, then point rootfs/initramfs at them via
+# `permissions: <name>`.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
 sdk:
-  image: docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
 
   container_args:
     - --privileged

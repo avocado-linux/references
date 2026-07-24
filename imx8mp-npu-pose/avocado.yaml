@@ -1,5 +1,3 @@
-cli_requirement: ">=0.26.0"
-
 default_target: "ucm-imx8m-plus"
 
 # Single-person pose estimation on the i.MX8M Plus NPU (Vivante VIP9000). Any
@@ -18,7 +16,6 @@ runtimes:
       - avocado-ext-dev
       - avocado-ext-sshd-dev
       - avocado-bsp-{{ avocado.target.board }}
-      - config
       - app
     packages:
       avocado-runtime: "*"
@@ -92,17 +89,24 @@ extensions:
     on_unmerge:
       - systemctl stop imx8mp-npu-pose.service
 
-  config:
-    types:
-      - confext
-    version: "0.1.0"
-    # NOT FOR PRODUCTION: empty root password for bring-up convenience.
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+# NOT FOR PRODUCTION: empty root password for bring-up convenience. The `dev`
+# profile is referenced by rootfs/initramfs above. Define additional profiles
+# with real users, groups, and hashed passwords, then point rootfs/initramfs at
+# them via `permissions: <name>`.
+permissions:
+  dev:
     users:
       root:
         password: ""
 
 sdk:
-  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
 
   container_args:
     - --privileged
