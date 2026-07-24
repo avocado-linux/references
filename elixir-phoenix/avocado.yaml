@@ -10,7 +10,6 @@ runtimes:
       avocado-runtime: '*'
     extensions:
       - example-elixir
-      - config-dev
       - avocado-ext-dev
       - avocado-ext-sshd-dev
       - avocado-ext-webkit
@@ -20,14 +19,12 @@ runtimes:
     qemux86-64:
       extensions:
         - example-elixir
-        - config-dev
         - avocado-ext-dev
         - avocado-ext-sshd-dev
         - avocado-bsp-{{ avocado.target.board }}
     qemuarm64:
       extensions:
         - example-elixir
-        - config-dev
         - avocado-ext-dev
         - avocado-ext-sshd-dev
         - avocado-bsp-{{ avocado.target.board }}
@@ -51,13 +48,6 @@ extensions:
     source:
       type: package
       version: '*'
-
-  config-dev:
-    version: 0.1.0
-
-    users:
-      root:
-        password: ''
 
   example-elixir:
     version: 0.1.0
@@ -122,15 +112,6 @@ extensions:
         nativesdk-git: '*'
         nativesdk-nodejs: '*'
         nativesdk-rebar3: '*'
-
-
-  avocado-ext-connect-config:
-    types:
-      - confext
-    version: "0.1.0"
-    overlay: overlay
-
-
   avocado-ext-connect:
     source:
       type: package
@@ -142,8 +123,24 @@ extensions:
       type: package
       version: "*"
 
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password and is
+# referenced by rootfs/initramfs above. Define additional profiles with real
+# users, groups, and hashed passwords, then point rootfs/initramfs at them via
+# `permissions: <name>`.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
 sdk:
-  image: docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
 
   container_args:
     - --privileged

@@ -24,7 +24,6 @@ runtimes:
       - avocado-bsp-{{ avocado.target.board }}
       - avocado-ext-connect
       - avocado-ext-tunnels
-      - config
     packages:
       avocado-runtime: "*"
 
@@ -58,10 +57,26 @@ extensions:
       type: package
       version: "*"
 
-  config:
-    types:
-      - confext
-    version: "0.1.0"
+##
+## Images
+##
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password and is
+# referenced by rootfs/initramfs above. Define additional profiles with real
+# users, groups, and hashed passwords, then point rootfs/initramfs at them via
+# `permissions: <name>`.
+permissions:
+  dev:
     users:
       root:
         password: ""
@@ -71,7 +86,7 @@ extensions:
 ##
 
 sdk:
-  image: "docker.io/avocadolinux/sdk:{{ avocado.distro.release }}-{{ avocado.distro.channel }}"
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
 
   container_args:
     - --privileged
