@@ -112,6 +112,15 @@ extensions:
         nativesdk-git: '*'
         nativesdk-nodejs: '*'
         nativesdk-rebar3: '*'
+
+
+  avocado-ext-connect-config:
+    types:
+      - confext
+    version: "0.1.0"
+    overlay: overlay
+
+
   avocado-ext-connect:
     source:
       type: package
