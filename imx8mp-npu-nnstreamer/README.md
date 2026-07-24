@@ -1,3 +1,15 @@
+---
+language: Python
+targets:
+  - ucm-imx8m-plus
+topics:
+  - npu
+  - vision
+  - image-classification
+  - nnstreamer
+  - ai-inference
+---
+
 # imx8mp-npu-nnstreamer
 
 Live **MobileNet INT8** camera classification offloaded to the **i.MX8M Plus
