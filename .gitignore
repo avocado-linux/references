@@ -1,2 +1,9 @@
 .DS_Store
 **/avocado-conn/config.toml
+
+# Avocado build state — generated per build, never commit these.
+# Matches in every reference directory (patterns without a slash apply recursively).
+avocado.lock
+.avocado-desktop.json
+.avocado/
+.avocado-state
