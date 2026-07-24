@@ -1,3 +1,15 @@
+---
+language: Python
+targets:
+  - ucm-imx8m-plus
+topics:
+  - npu
+  - vision
+  - pose-estimation
+  - nnstreamer
+  - ai-inference
+---
+
 # imx8mp-npu-pose — single-person pose estimation on the i.MX8M Plus NPU
 
 Live skeleton tracking with **MoveNet SinglePose Lightning**, quantized to INT8

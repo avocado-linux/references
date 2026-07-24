@@ -1,3 +1,15 @@
+---
+language: C
+targets:
+  - imx8mp-evk
+topics:
+  - zephyr
+  - rtos
+  - cortex-m7
+  - rpmsg
+  - cross-compilation
+---
+
 # Zephyr on the i.MX 8M Plus EVK Cortex-M7
 
 This reference builds a **Zephyr RTOS firmware** for the i.MX8MP's **Cortex-M7**
