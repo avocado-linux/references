@@ -1,5 +1,3 @@
-cli_requirement: ">=0.41.0"
-
 # Integrated NVIDIA GPU on a Jetson (tegra234/tegra264, JetPack 7 / L4T r39.2).
 # Testing target first is Jetson AGX Thor; Orin variants share the same feed.
 default_target: "jetson-agx-thor"
