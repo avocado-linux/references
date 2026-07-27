@@ -96,7 +96,6 @@ Edit `avocado.yaml` to customize the runtime:
 ```yaml
     extensions:
       - app
-      - config-dev
       - avocado-ext-dev
       - avocado-ext-sshd-dev
       - avocado-ext-webkit         # the Cog browser

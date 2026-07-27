@@ -91,7 +91,6 @@ runtimes:
       - avocado-ext-tunnels
       - avocado-ext-docker        # add Docker support
       - avocado-ext-cockpit       # add web-based management UI
-      - config
 ```
 
 ### Rebuild after changes
