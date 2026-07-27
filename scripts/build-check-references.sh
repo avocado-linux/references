@@ -239,7 +239,8 @@ for ((i = 0; i < COUNT; i++)); do
     FAIL*) fail=$((fail + 1)); printf 'FAIL  %s (%s) %s\n' "${REFS[$i]%/}" "${ST_TARGET[$i]}" "${ST_RESULT[$i]}";;
     *)     printf 'SKIP  %s\n' "${REFS[$i]%/}";;
   esac
-done | tee "$LOG_DIR/summary.txt"
+done > "$LOG_DIR/summary.txt"
+cat "$LOG_DIR/summary.txt"
 echo
 echo "PASS: $pass   FAIL: $fail   (logs: $LOG_DIR)"
 exit $overall_rc

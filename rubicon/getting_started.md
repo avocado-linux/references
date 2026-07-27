@@ -136,7 +136,6 @@ Edit `avocado.yaml` to add or remove extensions:
 ```yaml
     extensions:
       - rubicon
-      - config-dev
       - avocado-ext-cockpit       # remove to save space
       - avocado-ext-docker        # remove if Docker not needed
       - avocado-ext-dev

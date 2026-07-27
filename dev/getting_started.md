@@ -128,7 +128,6 @@ Add pre-built extensions from the package feed:
 ```yaml
     extensions:
       - app
-      - config-dev
       - avocado-ext-dev
       - avocado-ext-sshd-dev
       - avocado-ext-docker        # add Docker support
