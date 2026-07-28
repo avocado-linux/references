@@ -1,5 +1,5 @@
 .avocado/
-.avocado-state/
+.avocado-state
 .DS_Store
 # Tarball is a build artifact produced by build-image.sh into the sysext
 # overlay path. Don't commit it.

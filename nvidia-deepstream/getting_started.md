@@ -96,7 +96,7 @@ Flask doesn't bind port 8080 until `_start_pipeline()` returns, which waits for 
 
 ## Verify
 
-SSH into the device. The default `config` extension sets an empty root password for development:
+SSH into the device. The root account has an empty password for development:
 
 ```bash
 ssh root@<device-ip>
