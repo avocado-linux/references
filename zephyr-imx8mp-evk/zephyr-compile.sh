@@ -88,6 +88,14 @@ pip install --quiet west
 # ---------------------------------------------------------------------------
 # Fetch Zephyr + modules via west (pinned to ZEPHYR_REV).
 # ---------------------------------------------------------------------------
+# `west init` aborts with "target directory already exists" if WEST_TOPDIR
+# holds a stale/partial checkout (e.g. a prior run left zephyrproject/zephyr
+# without a valid .west marker). If the dir exists but isn't a valid west
+# workspace, clear it so init always starts from a clean slate.
+if [ -e "${WEST_TOPDIR}" ] && [ ! -d "${WEST_TOPDIR}/.west" ]; then
+  echo "Clearing stale/partial west workspace at ${WEST_TOPDIR}..."
+  rm -rf "${WEST_TOPDIR}"
+fi
 if [ ! -d "${WEST_TOPDIR}/.west" ]; then
   echo "west init -m ${ZEPHYR_MANIFEST_URL} --mr ${ZEPHYR_REV}"
   west init -m "${ZEPHYR_MANIFEST_URL}" --mr "${ZEPHYR_REV}" "${WEST_TOPDIR}"
