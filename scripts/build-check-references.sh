@@ -190,9 +190,11 @@ teardown() {
   avocado unlock --no-tui -t "$target" >>"$log" 2>&1 || true
   rm -f avocado.lock
   # -X (ignored-only): strip gitignored build state but never touch untracked
-  # WIP files. Anything untracked-and-not-ignored is surfaced by the residual
-  # check below instead of being silently deleted.
-  git -C "$REPO_ROOT" clean -fdX -- "$ref" >>"$log" 2>&1 || true
+  # WIP files. -ff (double force) so nested git repos left by tools like west
+  # (zephyr's zephyrproject/*, mcuboot, etc.) are removed too — a single -f
+  # skips nested repos and leaves a partial tree behind. Anything untracked-
+  # and-not-ignored is surfaced by the residual check below, not deleted.
+  git -C "$REPO_ROOT" clean -ffdX -- "$ref" >>"$log" 2>&1 || true
   # Undo any in-place rewrite of avocado.yaml by a teardown step (connect clean).
   [ -f "$LOG_DIR/$ref.avocado.yaml.orig" ] && cp -p "$LOG_DIR/$ref.avocado.yaml.orig" avocado.yaml
 }
