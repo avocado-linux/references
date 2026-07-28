@@ -218,7 +218,7 @@ In `stone/<target>/stone-<target>.json`:
 For a new target, copy the BSP's default manifest and bump `var.size`:
 
 ```bash
-docker run --rm docker.io/avocadolinux/sdk:2024-edge \
+docker run --rm docker.io/avocadolinux/sdk:2024 \
   cat /opt/avocado-sdk/stone/stone-<target>.json \
   > stone/<target>/stone-<target>.json
 ```

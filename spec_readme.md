@@ -29,7 +29,9 @@ icon: icon.png
 
 ### Valid target identifiers
 
-The following target identifiers are recognized. Use these exact strings in the `targets` field:
+The following target identifiers are recognized. Use these exact strings in the `targets` field.
+
+> **Note:** This table is not the definitive list of supported hardware — it may lag newly added boards. The authoritative, up-to-date support matrix lives on the Avocado docs site: <https://docs.peridio.com/hardware/support-matrix>.
 
 | Target | Hardware |
 |--------|----------|
@@ -52,6 +54,13 @@ The following target identifiers are recognized. Use these exact strings in the 
 | `stm32mp257f-dk` | STMicroelectronics STM32MP257F-DK |
 | `qemuarm64` | QEMU ARM |
 | `qemux86-64` | QEMU x86-64 |
+| `grinn-astra-1680-sbc` | Grinn Astra SL1680 SBC |
+| `jetson-agx-orin` | NVIDIA Jetson AGX Orin |
+| `jetson-agx-thor` | NVIDIA Jetson AGX Thor |
+| `jetson-orin-nano` | NVIDIA Jetson Orin Nano |
+| `rubikpi3` | Qualcomm RUBIK Pi 3 |
+| `rzv2n-sr-som` | Renesas RZ/V2N SR SoM |
+| `ucm-imx8m-plus` | CompuLab UCM-iMX8M-Plus |
 
 ## Body
 

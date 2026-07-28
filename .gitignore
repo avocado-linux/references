@@ -3,7 +3,8 @@
 
 # Avocado build state — generated per build, never commit these.
 # Matches in every reference directory (patterns without a slash apply recursively).
-avocado.lock
+# NB: avocado.lock is intentionally NOT ignored — it's a tracked pin file. The
+# build-check script strips maintainers' local lockfiles before commit instead.
 .avocado-desktop.json
 .avocado/
 .avocado-state

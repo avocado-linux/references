@@ -3,6 +3,5 @@ app/build/
 .avocado/
 .avocado-state
 .DS_Store
-avocado.lock
 __pycache__/
 *.pyc

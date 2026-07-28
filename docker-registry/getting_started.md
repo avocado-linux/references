@@ -75,7 +75,7 @@ Substitute `<device-ip>` in the commands below.
 
 ### Verify
 
-SSH into the device. The default `config` extension sets an empty root password for development:
+SSH into the device. The root account has an empty password for development:
 
 ```bash
 ssh root@<device-ip>
@@ -364,7 +364,7 @@ To support another target, add `stone/<target>/stone-<target>.json`:
 
 1. Pull the BSP's default manifest out of the SDK container:
    ```bash
-   docker run --rm docker.io/avocadolinux/sdk:2024-edge \
+   docker run --rm docker.io/avocadolinux/sdk:2024 \
      cat /opt/avocado-sdk/stone/stone-<target>.json \
      > stone/<target>/stone-<target>.json
    ```
