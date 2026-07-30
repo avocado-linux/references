@@ -1,0 +1,238 @@
+cli_requirement: ">=0.41.0"
+
+# Discrete NVIDIA RTX GPU on an Intel Core-class host (x86-64-v3 / AVX2).
+default_target: "intel-x86-64-v3"
+supported_targets:
+  - intel-x86-64-v3
+
+##
+## Distribution
+##
+
+distro:
+  release: 2024
+  channel: edge
+
+##
+## Runtimes
+##
+## Two ways to reach the same GPU, pick one at provision time:
+##   -r native : host-native TensorRT-RTX inference (no container engine)
+##   -r docker : GPU inside a CUDA container via the NVIDIA Container Toolkit (CDI)
+##
+
+runtimes:
+  # Host-native: TensorRT-RTX runtime + the inference dashboard, no docker.
+  native:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target }}
+      - bsp-nuvo-9000
+      - avocado-ext-nvidia-tensorrt-rtx
+      - app
+    packages:
+      avocado-runtime: "*"
+
+  # Containerized: docker + NVIDIA Container Toolkit (CDI) + a pre-seeded
+  # nvidia/cuda image that runs on the GPU.
+  docker:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target }}
+      - bsp-nuvo-9000
+      - docker
+      - avocado-ext-nvidia-container-toolkit
+      - app-docker
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target }}:
+    source:
+      type: package
+      version: "*"
+
+  # Host-native inference runtime (TensorRT-RTX + CUDA runtime libs).
+  avocado-ext-nvidia-tensorrt-rtx:
+    source:
+      type: package
+      version: "*"
+
+  # Docker engine (moby 25, CDI-capable). Inlined -- like the docker-registry /
+  # docker-save references -- rather than pulling avocado-ext-docker, whose
+  # hardcoded kernel-module-br-netfilter is not packaged for intel-x86-64-v3
+  # (br_netfilter is built into the kernel there, so there is no module to
+  # install). Container-networking kernel modules come from the BSP
+  # (avocado-bsp-intel-x86-64-v3); the GPU demo runs with --network none and
+  # needs no bridge networking at all. avocado-ext-nvidia-container-toolkit owns
+  # /etc/docker/daemon.json (CDI), so this extension does not ship one.
+  docker:
+    version: "0.1.0"
+    enable_services:
+      - docker.service
+    on_merge:
+      - systemctl try-restart docker.service
+    on_unmerge:
+      - systemctl stop docker.service
+    packages:
+      docker: '*'
+      ca-certificates: '*'
+
+  # nvidia-ctk + CDI daemon config + boot-time CDI spec generation.
+  avocado-ext-nvidia-container-toolkit:
+    source:
+      type: package
+      version: "*"
+
+  # --- native runtime app: ONNX -> TensorRT-RTX GPU inference dashboard ---
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "ONNX -> TensorRT-RTX GPU inference dashboard for x86-64 dGPU"
+    overlay: app/overlay
+    packages:
+      app:
+        compile: app
+        install: app-install.sh
+      python3: "*"
+      python3-numpy: "*"
+      curl: "*"
+    enable_services:
+      - app.service
+    on_merge:
+      - systemctl restart --no-block app.service
+    on_unmerge:
+      - systemctl stop app.service
+    sdk:
+      packages:
+        # host tool used by app-compile.sh to stage the pip deps
+        nativesdk-uv: "*"
+
+  # --- docker runtime app: run a CUDA container on the GPU via CDI ---
+  app-docker:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Runs a pre-seeded nvidia/cuda container on the dGPU via CDI"
+    overlay: app-docker/overlay
+    enable_services:
+      - gpu-container.service
+    on_merge:
+      # docker's own on_merge (try-restart) settles the daemon first.
+      - systemctl start docker.service
+      - systemctl restart --no-block gpu-container.service
+    on_unmerge:
+      - systemctl stop gpu-container.service
+    # Pull the CUDA image into the target /var at BUILD time (no runtime pull).
+    # Bump to a -runtime-/-devel- tag (and matching CUDA version) to run real
+    # CUDA workloads; -base is enough for the nvidia-smi GPU-access smoke test.
+    docker_images:
+      - image: docker.io/nvidia/cuda
+        tag: 12.6.3-base-ubuntu24.04
+    var_files:
+      - var/lib/docker/**
+
+  # Supplemental board support for the Neousys Nuvo-9000 industrial PC, layered
+  # on the generic avocado-bsp-intel-x86-64-v3. Adds the hardware this box needs
+  # that the base image/BSP does not ship (all confirmed on the live unit):
+  #   * NVIDIA discrete GPU driver (RTX 4000 SFF Ada) -- kernel modules, libcuda,
+  #     nvidia-smi, GSP firmware. The base rootfs shipped NO NVIDIA driver, so the
+  #     GPU was PCI-visible but unusable; the GPU runtimes depend on this.
+  #   * igc -- the 5x Intel I226-IT 2.5GbE ports. The base BSP ships only
+  #     e1000e/igb/ixgbe/r8169, so those ports had no driver and never came up.
+  #   * wireless-regdb -- regulatory.db for the AX210 Wi-Fi (was missing).
+  # Also carries a getty on the VT (base enables only serial-getty@ttyS0, so a
+  # monitor-attached box had no login) and masks two benign spurious failures
+  # (proc-fs-nfsd.mount -- no NFSD in kernel; getty@getty.service -- a bogus
+  # instance from the base image's bare getty@ enable).
+  bsp-nuvo-9000:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Board support supplement for the Neousys Nuvo-9000 industrial PC"
+    overlay: bsp-nuvo-9000/overlay
+    modprobe:
+      - igc
+    packages:
+      # Intel I226-IT 2.5GbE ports (the 5x ports the base BSP couldn't drive)
+      kernel-module-igc: "*"
+      # Wi-Fi regulatory database (regulatory.db)
+      wireless-regdb: "*"
+      # NVIDIA discrete GPU driver (kernel modules + libcuda + nvidia-smi + GSP
+      # firmware). Pulled via the extension because the reference rootfs is
+      # assembled by the avocado CLI from the feed -- it does NOT honor the OS
+      # image's PKG_EXTRA_INSTALL, so the driver must come from an ext (same way
+      # kernel-module-igc does). The packagegroup pulls kernel-module-nvidia*,
+      # nvidia-gpu-userspace, and nvidia-gpu-firmware (all now in the feed).
+      packagegroup-avocado-nvidia-gpu: "*"
+
+##
+## Images
+##
+## Bake the permissions profile into BOTH the rootfs and the initramfs, so root
+## can log in at the emergency/initramfs console (not just the fully-booted
+## system) when boot fails.
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password and is
+# referenced by rootfs/initramfs above so the console (incl. the emergency
+# shell) is reachable over serial/console and SSH. For production, define a
+# profile with a real hashed password and point rootfs/initramfs at it.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}-{{ config.distro.channel }}"
+
+  # Needed to pull docker_images at build time (docker runtime only; harmless
+  # for the native runtime build).
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    app:
+      compile: app-compile.sh
+      clean: app-clean.sh
+
+  packages:
+    avocado-sdk-toolchain: "*"
+    nativesdk-docker: "*"

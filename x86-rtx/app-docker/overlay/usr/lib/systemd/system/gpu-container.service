@@ -1,0 +1,19 @@
+[Unit]
+Description=NVIDIA CUDA GPU container demo (CDI)
+Documentation=https://docs.peridio.com
+Requires=docker.service
+After=docker.service nvidia-cdi-generate.service
+Wants=nvidia-cdi-generate.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# CDI injection: --device nvidia.com/gpu=all (NOT --gpus all, which needs the
+# legacy nvidia-container-runtime). --network none: the smoke test needs no net.
+# nvidia-smi is injected from the host driver, so it works even on the -base
+# image; swap for a -runtime-/-devel- image + your own command to run CUDA code.
+ExecStart=/usr/bin/docker run --rm --device nvidia.com/gpu=all --network none \
+    docker.io/nvidia/cuda:12.6.3-base-ubuntu24.04 nvidia-smi
+
+[Install]
+WantedBy=multi-user.target
