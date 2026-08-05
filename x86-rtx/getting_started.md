@@ -7,16 +7,21 @@ NVIDIA Container Toolkit / CDI (`-r docker`).
 ## Prerequisites
 
 - **Hardware:** an Intel x86-64-v3 (Haswell+/Raptor Lake, AVX2) system with a
-  discrete NVIDIA RTX GPU (Turing or later). Validated on a Neousys Nuvo-9000
-  (i9-14900) with an RTX 4000 SFF Ada.
-- **[Avocado CLI](https://docs.peridio.com)** `>= 0.40.0` (the `docker_images`
-  pre-seed used by the docker runtime needs it).
-- **The NVIDIA driver must be in the base image.** This reference provides only
-  the GPU *runtimes*; it relies on the base `intel-x86-64-v3` image already
-  shipping the NVIDIA GPU driver stack — kernel modules (`nvidia`,
-  `nvidia-modeset`, `nvidia-drm`, `nvidia-uvm`), `libcuda`, `nvidia-modprobe`,
-  and GSP firmware (the `packagegroup-avocado-nvidia-gpu` set).
+  discrete NVIDIA RTX 40- or 50-series GPU. Validated on a Neousys Nuvo-9000
+  (i9-14900) with an RTX 4000 SFF Ada; a LattePanda Sigma board BSP is also
+  available.
+- **[Avocado CLI](https://docs.peridio.com)** `>= 0.41.0` (matches
+  `cli_requirement` in `avocado.yaml`; the `docker_images` pre-seed used by the
+  docker runtime needs it).
+- **A board must be selected.** The board BSP is pulled as
+  `avocado-bsp-{{ avocado.target.board }}` and supplies the NVIDIA driver stack
+  (kernel modules, `libcuda`, `nvidia-smi`, GSP firmware). Pass
+  `--target-board nuvo-9000` or `--target-board lattepanda-sigma`. Without a
+  board the name falls back to the target and resolves the generic
+  `avocado-bsp-intel-x86-64-v3`, which carries no NVIDIA driver — the image
+  builds but both runtimes fail at `nvidia-smi`/`libcuda`.
 - **Extensions must be resolvable** in your feed (or built locally):
+  - both runtimes → `avocado-bsp-<board>`
   - native runtime → `avocado-ext-nvidia-tensorrt-rtx`
   - docker runtime → `avocado-ext-nvidia-container-toolkit` (the docker engine is
     inlined as the `docker` extension; the `docker` feed package must resolve)
@@ -33,10 +38,10 @@ cd my-rtx-inference
 
 ## Install
 
-Resolve extensions and SDK packages for the target:
+Resolve extensions and SDK packages for the target and board:
 
 ```bash
-avocado install -f
+avocado install -f --target-board nuvo-9000
 ```
 
 ## Build

@@ -25,8 +25,9 @@ RTX GPU. It exercises the GPU two ways, selectable at provision time:
   Container Toolkit via **CDI**, running a pre-seeded `nvidia/cuda` image on the
   GPU with `docker run --device nvidia.com/gpu=all`. No `libnvidia-container`.
 
-Both runtimes ride the same base-image driver stack (`nvidia.ko` + `libcuda` +
-`/dev/nvidia*`). Highlights:
+Both runtimes ride the same driver stack (`nvidia.ko` + `libcuda` +
+`/dev/nvidia*`), supplied by the board BSP selected with `--target-board`
+(`nuvo-9000` or `lattepanda-sigma`). Highlights:
 
 - Two GPU access models — host-native (TensorRT-RTX JIT for the actual GPU, e.g. Ada `sm_89`, executed with `cuda-python` buffers) and containerized (CDI)
 - CDI path skips the painful `libnvidia-container` build: just `nvidia-ctk`, a CDI spec generated at boot, and `{"features":{"cdi":true}}` in the docker daemon
