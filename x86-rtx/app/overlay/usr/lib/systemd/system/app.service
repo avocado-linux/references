@@ -1,7 +1,10 @@
 [Unit]
 Description=x86 RTX GPU Inference Dashboard
-After=network-online.target
-Wants=network-online.target
+# No network-online dependency on purpose: the server binds 0.0.0.0 (works before
+# any link is up) and makes no outbound calls at start. Pulling network-online in
+# would activate systemd-networkd-wait-online, which on this 6-NIC box blocks boot
+# until unplugged ports time out (~120s). Let the dashboard come up immediately;
+# connections are simply accepted once the network is up.
 
 [Service]
 Type=simple
