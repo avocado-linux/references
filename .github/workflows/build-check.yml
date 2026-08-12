@@ -1,0 +1,274 @@
+name: Build Check
+
+# Per-reference install + build verification, the CI counterpart of
+# scripts/build-check-references.sh.
+#
+# Pull requests build only the references whose directories changed (new
+# references are picked up the same way — their files are "changed" too).
+# A workflow_dispatch with no `refs` input, or the weekly schedule, sweeps
+# all references.
+#
+# There is deliberately NO skip-list: a reference that cannot install or
+# build goes red, every run, until the underlying problem (usually a
+# missing package in the target's feed) is fixed. Red is the signal.
+#
+# Install gets ONE retry — feed fetches and in-build downloads fail
+# transiently often enough that a single retry removes most noise. Build
+# failures are never retried: a build that fails after a clean install is
+# a real result.
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      refs:
+        description: Space-separated reference dirs to build (empty = all)
+        type: string
+        default: ""
+  schedule:
+    # Weekly full sweep, Monday 06:00 UTC.
+    - cron: "0 6 * * 1"
+
+# Cancel a superseded PR run; never cancel a sweep on main.
+concurrency:
+  group: build-check-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  pull-requests: write # sticky report comment on PRs
+
+jobs:
+  detect:
+    name: Detect references to build
+    runs-on: ubuntu-latest
+    outputs:
+      refs: ${{ steps.list.outputs.refs }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Full history so the PR diff against the base branch works.
+          fetch-depth: 0
+
+      - name: List references
+        id: list
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          INPUT_REFS: ${{ inputs.refs }}
+        run: |
+          set -euo pipefail
+          list_all() {
+            for d in */; do [ -f "${d}avocado.yaml" ] && printf '%s\n' "${d%/}"; done
+          }
+          case "$EVENT" in
+            pull_request)
+              # Top-level dirs touched by the PR that are references. Changes
+              # outside reference dirs (scripts/, README, this workflow) do
+              # not trigger builds on their own.
+              refs="$(git diff --name-only "origin/${BASE_REF}...HEAD" -- . \
+                        | cut -d/ -f1 | sort -u)"
+              out=""
+              for d in $refs; do
+                [ -f "$d/avocado.yaml" ] && out="$out $d"
+              done
+              ;;
+            workflow_dispatch)
+              if [ -n "$INPUT_REFS" ]; then out="$INPUT_REFS"; else out="$(list_all)"; fi
+              ;;
+            *) # schedule
+              out="$(list_all)"
+              ;;
+          esac
+          json="$(printf '%s\n' $out | jq -R . | jq -sc 'map(select(length > 0))')"
+          echo "refs to build: $json"
+          echo "refs=$json" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.ref }}
+    needs: detect
+    if: needs.detect.outputs.refs != '[]'
+    strategy:
+      # One failing reference must not stop the others — every changed
+      # reference reports its own result.
+      fail-fast: false
+      matrix:
+        ref: ${{ fromJSON(needs.detect.outputs.refs) }}
+    runs-on: ubuntu-latest
+    # The heavy references (nvidia-*, jetson-trt, python-whisper) pull
+    # multi-GB feeds and docker images; give them room but cap a wedged
+    # build well under GitHub's 6h default.
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Free runner disk space
+        # The GPU/ML references need more than the ~14GB a stock runner has
+        # free. Dropping the preinstalled toolchains we never use frees
+        # ~25GB in a few seconds.
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af >/dev/null
+          df -h /
+
+      - name: Enable qemu binfmt for foreign-arch targets
+        # Most references target arm64 boards; the runner is x86_64. The SDK
+        # handles cross-arch work itself, but host binfmt registration keeps
+        # any container-side foreign-arch execution working.
+        uses: docker/setup-qemu-action@v4
+
+      - name: Install avocado CLI
+        uses: avocado-linux/actions/setup-avocado-cli@v1
+
+      - name: Resolve target
+        id: target
+        working-directory: ${{ matrix.ref }}
+        # Same resolution rule as scripts/build-check-references.sh:
+        # default_target if concrete, else the first concrete
+        # supported_targets entry, else qemuarm64.
+        run: |
+          target="$(python3 - <<'EOF'
+          import yaml
+          y = yaml.safe_load(open("avocado.yaml")) or {}
+          t = y.get("default_target")
+          if not t or t == "*":
+              st = y.get("supported_targets")
+              if isinstance(st, list):
+                  t = next((s for s in st if s and s != "*"), None)
+              else:
+                  t = None
+          print(t or "qemuarm64")
+          EOF
+          )"
+          echo "target: $target"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+
+      - name: avocado install (one retry)
+        id: install
+        working-directory: ${{ matrix.ref }}
+        env:
+          TARGET: ${{ steps.target.outputs.target }}
+        run: |
+          set -uo pipefail
+          avocado clean -f >/dev/null 2>&1 || true
+          if avocado install -f --no-tui --target "$TARGET"; then
+            exit 0
+          fi
+          echo "::warning title=install retry::${{ matrix.ref }}: install failed once, retrying after a clean"
+          echo "INSTALL_RETRIED=1" >> "$GITHUB_ENV"
+          avocado clean -f >/dev/null 2>&1 || true
+          avocado install -f --no-tui --target "$TARGET"
+
+      - name: avocado build
+        id: build
+        working-directory: ${{ matrix.ref }}
+        env:
+          TARGET: ${{ steps.target.outputs.target }}
+        # No retry: a build failure after a clean install is a real result.
+        run: avocado build --no-tui --target "$TARGET"
+
+      - name: Record result
+        # Runs on pass AND fail — the status is recorded before any cleanup.
+        if: always()
+        env:
+          REF: ${{ matrix.ref }}
+          TARGET: ${{ steps.target.outputs.target }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+        run: |
+          set -euo pipefail
+          mark() { case "$1" in success) echo "✅";; failure) echo "❌";; *) echo "–";; esac; }
+          install_cell="$(mark "$INSTALL_OUTCOME")"
+          [ "${INSTALL_RETRIED:-0}" = "1" ] && [ "$INSTALL_OUTCOME" = "success" ] \
+            && install_cell="✅ (retried)"
+          build_cell="$(mark "$BUILD_OUTCOME")"
+          if [ "$BUILD_OUTCOME" = "success" ]; then result="PASS"
+          elif [ "$INSTALL_OUTCOME" != "success" ]; then result="FAIL @ install"
+          else result="FAIL @ build"; fi
+          row="| ${REF} | ${TARGET} | ${install_cell} | ${build_cell} | ${result} |"
+          mkdir -p results
+          printf '%s\n' "$row" > "results/${REF}.row"
+          {
+            echo "| Reference | Target | install | build | Result |"
+            echo "|-----------|--------|:-------:|:-----:|--------|"
+            echo "$row"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload result row
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: result-${{ matrix.ref }}
+          path: results/
+          retention-days: 14
+
+      - name: Clean up build state
+        # After the status is recorded, purge everything the build created:
+        # project state + docker volumes (avocado clean), abandoned volumes
+        # (avocado prune), and whatever docker still holds. The runner is
+        # ephemeral, but the heavy references can fill the disk before the
+        # job ends — and this keeps the recipe correct for self-hosted
+        # runners too.
+        if: always()
+        working-directory: ${{ matrix.ref }}
+        run: |
+          avocado clean -f || true
+          avocado prune || true
+          sudo docker system prune -af --volumes >/dev/null || true
+          df -h /
+
+  report:
+    name: Aggregate report
+    needs: [detect, build]
+    if: always() && needs.detect.outputs.refs != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download result rows
+        uses: actions/download-artifact@v7
+        with:
+          pattern: result-*
+          path: results
+          merge-multiple: true
+
+      - name: Compose report
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          {
+            echo "<!-- avocado-build-check -->"
+            echo "## Avocado References — Build Check"
+            echo
+            echo "| Reference | Target | install | build | Result |"
+            echo "|-----------|--------|:-------:|:-----:|--------|"
+            cat results/*.row | sort
+            echo
+            pass="$(cat results/*.row | grep -c '| PASS |' || true)"
+            fail="$(cat results/*.row | grep -c '| FAIL' || true)"
+            echo "**Totals:** ${pass} ✅ passed · ${fail} ❌ failed"
+            echo
+            echo "Per-reference logs: [workflow run](${RUN_URL})"
+          } > report.md
+          cat report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Post sticky PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        # One comment per PR, updated in place on every run (matched by the
+        # hidden marker), so the PR isn't littered with a comment per push.
+        run: |
+          set -euo pipefail
+          marker="<!-- avocado-build-check -->"
+          existing="$(gh api "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" --paginate \
+                        -q ".[] | select(.body | startswith(\"${marker}\")) | .id" | head -1)"
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" \
+              -F body=@report.md >/dev/null
+          else
+            gh api -X POST "repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+              -F body=@report.md >/dev/null
+          fi

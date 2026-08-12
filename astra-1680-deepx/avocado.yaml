@@ -1,3 +1,5 @@
+cli_requirement: ">=0.41.0"
+
 default_target: grinn-astra-1680-sbc
 supported_targets:
   - grinn-astra-1680-sbc
