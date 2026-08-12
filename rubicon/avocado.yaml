@@ -1,3 +1,5 @@
+cli_requirement: ">=0.41.0"
+
 supported_targets:
   - raspberrypi4
   - raspberrypi5

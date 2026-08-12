@@ -1,3 +1,5 @@
+cli_requirement: ">=0.41.0"
+
 default_target: "ucm-imx8m-plus"
 
 # Single-person pose estimation on the i.MX8M Plus NPU (Vivante VIP9000). Any
