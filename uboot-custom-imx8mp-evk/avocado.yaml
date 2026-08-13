@@ -101,3 +101,11 @@ sdk:
     nativesdk-flex: '*'
     nativesdk-openssl-bin: '*'
     nativesdk-dtc: '*'
+    # Host toolchain for HOSTCC/HOSTCXX/HOSTLD/HOSTAR -- U-Boot's fixdep,
+    # mkimage, and mkenvimage run on the build host, so they must not be
+    # built with the target cross-compiler. avocado-sdk-toolchain only
+    # brings the cross-canadian target compiler.
+    nativesdk-gcc: '*'
+    nativesdk-g++: '*'
+    nativesdk-binutils: '*'
+    nativesdk-libc6-dev: '*'

@@ -73,15 +73,13 @@ PATCHES_DIR="${HOST_SRC}/patches"
 # As with the kernel reference, the SDK exports a userspace toolchain
 # (CC, CFLAGS, LDFLAGS, ...). U-Boot and TF-A derive their own toolchain
 # from CROSS_COMPILE; the userspace exports fight that and produce
-# linker errors. Save CROSS_COMPILE + a target sysroot for HOSTCC, then
-# clear the rest.
+# linker errors. Save CROSS_COMPILE, then clear the rest.
 # ---------------------------------------------------------------------------
 _CROSS_COMPILE="${CROSS_COMPILE:-}"
 if [ -z "${_CROSS_COMPILE}" ]; then
   echo "[ERROR] CROSS_COMPILE not exported by SDK env." >&2
   exit 1
 fi
-_TARGET_SYSROOT="${OECORE_TARGET_SYSROOT:-}"
 
 unset CC CXX CPP LD AR AS NM STRIP OBJCOPY OBJDUMP READELF RANLIB
 unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
@@ -89,23 +87,21 @@ unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
 export CROSS_COMPILE="${_CROSS_COMPILE}"
 export ARCH=arm64
 
-# Derive HOSTCC from the SDK env. The Avocado SDK only ships the
-# target-prefixed cross-canadian compiler (${CROSS_COMPILE}gcc); there
-# is no separate native host gcc. The container has qemu-user
-# registered via binfmt_misc, so the aarch64 host tools that U-Boot /
-# TF-A produce (fixdep, mkimage, etc.) execute transparently on the
-# x86_64 build host.
-#
-# This is the same trick the kernel reference uses, except there it
-# works because qemux86-64 is same-arch. Here it works because of
-# qemu-user emulation.
-#
-# The bare cross-compiler has no default sysroot; pass the SDK's
-# target sysroot so #include <sys/types.h> and friends resolve.
-HOSTCC="${CROSS_COMPILE}gcc --sysroot=${_TARGET_SYSROOT}"
-HOSTCXX="${CROSS_COMPILE}g++ --sysroot=${_TARGET_SYSROOT}"
-HOSTLD="${CROSS_COMPILE}ld"
-HOSTAR="${CROSS_COMPILE}ar"
+# HOSTCC builds tools that run on the build host (fixdep, mkimage,
+# mkenvimage), so it must be a native host compiler -- not the target
+# cross-compiler. The SDK ships one via nativesdk-gcc / nativesdk-g++ /
+# nativesdk-binutils (see sdk.packages in avocado.yaml), prefixed with
+# the SDK host arch. Its headers come from nativesdk-libc6-dev.
+_SDK_PREFIX="$(uname -m)-avocadosdk-linux-"
+HOSTCC="${_SDK_PREFIX}gcc"
+HOSTCXX="${_SDK_PREFIX}g++"
+HOSTLD="${_SDK_PREFIX}ld"
+HOSTAR="${_SDK_PREFIX}ar"
+
+if ! command -v "${HOSTCC}" >/dev/null 2>&1; then
+  echo "[ERROR] ${HOSTCC} not found; is nativesdk-gcc in sdk.packages?" >&2
+  exit 1
+fi
 
 echo "ARCH=${ARCH}"
 echo "CROSS_COMPILE=${CROSS_COMPILE}"
