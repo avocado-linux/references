@@ -100,6 +100,9 @@ sdk:
     nativesdk-bison: '*'
     nativesdk-flex: '*'
     nativesdk-openssl-bin: '*'
+    # U-Boot's host tools (mkimage, dumpimage) link OpenSSL for FIT signing --
+    # include/image.h pulls in <openssl/evp.h>. -bin is just the binaries.
+    nativesdk-openssl-dev: '*'
     nativesdk-dtc: '*'
     # Host toolchain for HOSTCC/HOSTCXX/HOSTLD/HOSTAR -- U-Boot's fixdep,
     # mkimage, and mkenvimage run on the build host, so they must not be
