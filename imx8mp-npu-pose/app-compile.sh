@@ -13,13 +13,13 @@ QENV="app/build/qenv"
 OUT_DIR="app/build/model"
 TF_PIN="tensorflow==2.16.*"
 
-if [ ! -f "$MODEL_DIR/saved_model.pb" ]; then
-    echo "ERROR: MoveNet SavedModel missing in $MODEL_DIR. Run ./fetch-model.sh first." >&2
-    exit 1
-fi
-if [ -z "$(ls -A "$REP_DIR"/*.jpg 2>/dev/null)" ]; then
-    echo "ERROR: no calibration images in $REP_DIR. Run ./fetch-model.sh first." >&2
-    exit 1
+# Fetch the SavedModel and calibration inputs if they are not there yet, so
+# `avocado build` works on a fresh clone (and in CI) without a manual pre-step.
+# fetch-model.sh is idempotent -- it skips anything already downloaded. Drop
+# your own .jpg files into $REP_DIR beforehand and they are used as-is.
+if [ ! -f "$MODEL_DIR/saved_model.pb" ] || [ -z "$(ls -A "$REP_DIR"/*.jpg 2>/dev/null)" ]; then
+    echo "MoveNet SavedModel or calibration images missing; fetching them."
+    ./fetch-model.sh
 fi
 
 echo "============================================"

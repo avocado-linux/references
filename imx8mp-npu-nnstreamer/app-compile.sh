@@ -15,10 +15,13 @@ QENV="app/build/qenv"
 MODEL_DIR="app/build/model"
 TF_PIN="tensorflow==2.16.*"
 
+# Fetch calibration inputs if they are not there yet, so `avocado build` works
+# on a fresh clone (and in CI) without a manual pre-step. fetch-model.sh is
+# idempotent -- it skips anything already downloaded. Drop your own .jpg files
+# into $REP_DIR beforehand and they are used as-is.
 if [ ! -d "$REP_DIR" ] || [ -z "$(ls -A "$REP_DIR" 2>/dev/null)" ]; then
-    echo "ERROR: no representative images in $REP_DIR." >&2
-    echo "Run ./fetch-model.sh first (or drop your own .jpg files there)." >&2
-    exit 1
+    echo "No representative images in $REP_DIR; fetching them."
+    ./fetch-model.sh
 fi
 
 echo "============================================"
