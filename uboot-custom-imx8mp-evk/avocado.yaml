@@ -18,17 +18,26 @@ runtimes:
       - avocado-ext-dev
       - avocado-ext-sshd-dev
       - avocado-bsp-{{ avocado.target.board }}
+    # Cross-compile imx-boot from source via the SDK and drop it into the
+    # runtime build dir, overriding any upstream-provided imx-boot. The compile
+    # step runs uboot-compile.sh (TF-A + U-Boot + DDR FW bundled by
+    # imx-mkimage); the install step copies flash.bin to
+    # $AVOCADO_RUNTIME_BUILD_DIR/imx-boot so stone picks up ours.
+    #
+    # This is wired as `kernel:` rather than as a `packages:` entry because the
+    # CLI only provisions the target sysroot for compile sections reached via
+    # `runtimes.<n>.kernel.compile` or an extension (see
+    # find_active_compile_sections). Under a `packages:` entry the section's
+    # `packages:` are silently ignored, no target sysroot is created at all, and
+    # the U-Boot link fails on the missing target libgcc.a. Move this back to
+    # `packages:` once the CLI resolves non-kernel compile sections too.
+    # The real Linux kernel is unaffected -- it still comes from
+    # avocado-runtime and is staged separately.
+    kernel:
+      compile: uboot
+      install: uboot-install.sh
     packages:
       avocado-runtime: '*'
-
-      # Cross-compile imx-boot from source via the SDK and drop it into
-      # the runtime build dir, overriding any upstream-provided imx-boot.
-      # The compile step runs uboot-compile.sh (TF-A + U-Boot + DDR FW
-      # bundled by imx-mkimage); the install step copies flash.bin to
-      # $AVOCADO_RUNTIME_BUILD_DIR/imx-boot so stone bundles ours.
-      uboot:
-        compile: uboot
-        install: uboot-install.sh
 
 ##
 ## Extensions
@@ -88,6 +97,12 @@ sdk:
     uboot:
       compile: uboot-compile.sh
       clean: uboot-clean.sh
+      # Installed into the TARGET sysroot (same pattern as the
+      # linux-custom-kernel reference's compile section). U-Boot links
+      # -lgcc, and the cross-canadian compiler resolves libgcc.a out of
+      # the target sysroot rather than shipping its own.
+      packages:
+        libgcc-s-dev: '*'
 
   # Native build tools for U-Boot, TF-A, and imx-mkimage. nativesdk-*
   # packages are installed into the SDK host sysroot (not the target
@@ -100,9 +115,19 @@ sdk:
     nativesdk-bison: '*'
     nativesdk-flex: '*'
     nativesdk-openssl-bin: '*'
-    # U-Boot's host tools (mkimage, dumpimage) link OpenSSL for FIT signing --
-    # include/image.h pulls in <openssl/evp.h>. -bin is just the binaries.
+    # Host headers for U-Boot's tools/ build (`make all` builds all of them):
+    #   openssl          -- FIT signing, via include/image.h
+    #   libuuid, gnutls  -- tools/mkeficapsule.c
+    #   libz             -- FIT compression
+    # The -bin/-lib packages carry no headers, so the -dev ones are required.
     nativesdk-openssl-dev: '*'
+    nativesdk-libuuid-dev: '*'
+    nativesdk-libgnutls-dev: '*'
+    nativesdk-libz-dev: '*'
+    # imx-mkimage builds mkimage_imx8 with `-static -lz`, so the static
+    # archives are needed on top of the shared -dev packages.
+    nativesdk-libc6-staticdev: '*'
+    nativesdk-libz-staticdev: '*'
     nativesdk-dtc: '*'
     # Host toolchain for HOSTCC/HOSTCXX/HOSTLD/HOSTAR -- U-Boot's fixdep,
     # mkimage, and mkenvimage run on the build host, so they must not be
