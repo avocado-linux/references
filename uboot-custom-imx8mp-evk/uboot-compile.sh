@@ -238,10 +238,19 @@ cp -f "${FIRMWARE_DIR}/firmware/ddr/synopsys/lpddr4_pmu_train_2d_dmem_202006.bin
 # ---------------------------------------------------------------------------
 # Build flash.bin (== imx-boot).
 # ---------------------------------------------------------------------------
+# imx-mkimage hardcodes `CC = gcc` in its top Makefile (and `CC ?= gcc` in
+# iMX8M/soc.mak) to build the host-side mkimage_imx8. The SDK has no bare `gcc`,
+# so pass CC on the make command line -- a command-line variable overrides even
+# a hard `=` assignment and propagates to the sub-make via MAKEFLAGS.
+# Run from inside MKIMAGE_DIR rather than with `make -C`: imx-mkimage derives
+# its mkimage_imx8 output path from the invoking PWD, so `-C` would drop the
+# built host tool into the reference directory. Building in-tree keeps it under
+# AVOCADO_BUILD_DIR, which uboot-clean.sh already removes.
 echo "Building flash.bin via imx-mkimage SOC=${MKIMAGE_SOC} flash_evk..."
-make -C "${MKIMAGE_DIR}" \
-  SOC="${MKIMAGE_SOC}" \
-  "${MKIMAGE_TARGET}"
+( cd "${MKIMAGE_DIR}" && make \
+    CC="${HOSTCC}" \
+    SOC="${MKIMAGE_SOC}" \
+    "${MKIMAGE_TARGET}" )
 
 cp -f "${MKIMAGE_DIR}/iMX8M/flash.bin" "${AVOCADO_BUILD_DIR}/flash.bin"
 
