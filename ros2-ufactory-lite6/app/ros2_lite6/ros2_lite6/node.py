@@ -3,7 +3,7 @@
 Threading model:
   * Main thread: rclpy executor spin (`rclpy.spin`)
   * Background thread: uvicorn serving the FastAPI app
-  * Both share an `ArmController` whose every public method takes a lock.
+  * Both share an `ArmController`. See arm.py for the locking strategy.
 """
 
 from __future__ import annotations

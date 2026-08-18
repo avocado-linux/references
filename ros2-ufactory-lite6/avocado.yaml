@@ -1,12 +1,13 @@
 cli_requirement: ">=0.41.0"
 
-default_target: "imx8mp-evk"
+default_target: "imx95-frdm"
 
 supported_targets:
   - imx8mp-evk
   - imx91-frdm
   - imx93-evk
   - imx93-frdm
+  - imx95-frdm
   - raspberrypi5
   - rzv2n-sr-som
   - stm32mp257f-dk
@@ -19,7 +20,7 @@ supported_targets:
 
 distro:
   release: 2024
-  channel: edge
+  channel: next
 
 ##
 ## Runtimes
@@ -87,6 +88,8 @@ extensions:
       - confext
     version: "0.1.0"
     summary: "ROS 2 Humble + xArm SDK controller for UFactory Lite 6, shipped as a docker-save tarball"
+    packages:
+      curl: "*"
     enable_services:
       - container-app.service
     on_merge:

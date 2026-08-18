@@ -151,6 +151,11 @@ def build_app(arm: ArmController) -> FastAPI:
         _run_threaded(sequences.square, arm)
         return {"accepted": "square"}
 
+    @app.post("/spiral")
+    def spiral() -> dict:
+        _run_threaded(sequences.spiral, arm)
+        return {"accepted": "spiral"}
+
     @app.post("/pick_and_place")
     def pick_and_place(req: PickPlaceRequest) -> dict:
         source = sequences.PickPlacePose(x=req.source_x, y=req.source_y, z=req.source_z)
