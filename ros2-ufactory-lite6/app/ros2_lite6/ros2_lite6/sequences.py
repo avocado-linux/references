@@ -179,45 +179,41 @@ def square(arm: ArmController, edge_mm: float = 100.0, speed: float = 100.0) -> 
 
 def spiral(
     arm: ArmController,
-    revolutions: float = 2.5,
-    min_radius_mm: float = 30.0,
-    max_radius_mm: float = 120.0,
-    z_bottom: float = 200.0,
-    z_top: float = 380.0,
-    steps_per_rev: int = 24,
+    revolutions: float = 3.0,
+    min_radius_mm: float = 20.0,
+    max_radius_mm: float = 110.0,
+    steps_per_rev: int = 18,
     speed: float = 120.0,
 ) -> None:
-    """Trace a spiral (helix) in the air using Cartesian linear moves.
+    """Trace an expanding flat spiral in the air, like drawing on a whiteboard.
 
-    The TCP draws an expanding helix centered in front of the base:
-    radius grows from ``min_radius_mm`` to ``max_radius_mm`` while z
-    rises from ``z_bottom`` to ``z_top`` over ``revolutions`` turns.
-    The result looks like a corkscrew or cone-shaped spiral drawn in
-    the air — good for demos and visual flair.
+    The TCP draws a 2D Archimedean spiral on a vertical plane in front of
+    the base.  X stays fixed while Y (left-right) and Z (up-down) sweep
+    out the spiral, starting from a small circle at the center and
+    expanding outward to the arm's comfortable reach.
 
     Default parameters keep the path well within the Lite 6's reachable
-    workspace (x~250 mm forward, z 200-380 mm).
+    workspace (x~250 mm forward, Y ±110 mm, Z 190–390 mm).
     """
-    cx = 250.0  # center of the spiral in x (forward from base)
-    cy = 0.0    # center in y (centered on base)
+    cx = 250.0   # fixed distance forward from base
+    cy = 0.0     # center of spiral in Y (left-right)
+    cz = 290.0   # center of spiral in Z (up-down)
 
     total_steps = int(revolutions * steps_per_rev)
 
     # Move to the starting point of the spiral first
-    start_x = cx + min_radius_mm
-    arm.move_line(x=start_x, y=cy, z=z_bottom, speed=speed)
+    arm.move_line(x=cx, y=cy + min_radius_mm, z=cz, speed=speed)
     time.sleep(0.1)
 
     for i in range(1, total_steps + 1):
         t = i / total_steps  # 0 → 1 over the full path
         angle = t * revolutions * 2.0 * math.pi
         radius = min_radius_mm + t * (max_radius_mm - min_radius_mm)
-        z = z_bottom + t * (z_top - z_bottom)
 
-        x = cx + radius * math.cos(angle)
-        y = cy + radius * math.sin(angle)
+        y = cy + radius * math.cos(angle)
+        z = cz + radius * math.sin(angle)
 
-        arm.move_line(x=x, y=y, z=z, speed=speed)
+        arm.move_line(x=cx, y=y, z=z, speed=speed)
 
     arm.go_home()
 

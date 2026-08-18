@@ -59,6 +59,15 @@ _TELEMETRY_HZ = 60.0
 # How often to poll for motion completion inside _wait_for_idle (seconds).
 _MOTION_POLL_INTERVAL = 0.05
 
+# How long _wait_for_idle waits for a just-issued (wait=False) move to register
+# as "in motion" before concluding it was a no-op / already finished (seconds).
+_MOTION_START_TIMEOUT = 0.5
+
+# Upper bound on how long a single motion command may take before _wait_for_idle
+# gives up (seconds). Prevents a faulted/stuck arm from spinning forever while
+# holding _cmd_lock.
+_MOTION_TIMEOUT = 30.0
+
 
 @dataclass
 class ArmStatus:
@@ -99,6 +108,7 @@ class ArmController:
             error_code=-1, warn_code=-1, gripper=GRIPPER_UNKNOWN,
         )
         self._telemetry_stop = threading.Event()
+        self._telemetry_thread: Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -109,17 +119,17 @@ class ArmController:
                 return
             if self._mock:
                 self._connected = True
-                self._start_telemetry()
-                return
-            # Lazy import so mock mode doesn't drag in the SDK.
-            from xarm.wrapper import XArmAPI  # type: ignore
+            else:
+                # Lazy import so mock mode doesn't drag in the SDK.
+                from xarm.wrapper import XArmAPI  # type: ignore
 
-            self._arm = XArmAPI(self._ip, is_radian=False)
-            self._arm.connect()
-            self._arm.motion_enable(enable=True)
-            self._arm.set_mode(0)
-            self._arm.set_state(0)
-            self._connected = True
+                self._arm = XArmAPI(self._ip, is_radian=False)
+                self._arm.connect()
+                self._arm.motion_enable(enable=True)
+                self._arm.set_mode(0)
+                self._arm.set_state(0)
+                self._connected = True
+        # Start the poller once, outside the lock, for both mock and live.
         self._start_telemetry()
 
     def disconnect(self) -> None:
@@ -132,14 +142,32 @@ class ArmController:
                     pass
                 self._arm = None
             self._connected = False
+            # Refresh the cache so status() reflects the disconnect instead of
+            # returning the last "connected" snapshot forever — the poller has
+            # stopped and will no longer update it.
+            self._cached_status = ArmStatus(
+                connected=False, mock=self._mock, robot_mode=-1, state=-1,
+                error_code=-1, warn_code=-1, gripper=self._gripper_state,
+            )
 
     # ------------------------------------------------------------------
     # Background telemetry poller
 
     def _start_telemetry(self) -> None:
+        # Stop and reap any previous poller before starting a new one. Without
+        # this, a connect→disconnect→connect sequence would clear the stop event
+        # (below) while an old thread is still sleeping in wait(), resurrecting
+        # it — leaving two threads writing _cached_status with no way to stop
+        # either independently.
+        prev = self._telemetry_thread
+        if prev is not None and prev.is_alive():
+            self._telemetry_stop.set()
+            prev.join(timeout=2.0)
         self._telemetry_stop.clear()
-        t = threading.Thread(target=self._telemetry_loop, name="arm-telemetry", daemon=True)
-        t.start()
+        self._telemetry_thread = threading.Thread(
+            target=self._telemetry_loop, name="arm-telemetry", daemon=True
+        )
+        self._telemetry_thread.start()
 
     def _telemetry_loop(self) -> None:
         """Poll the SDK at ~60 Hz and cache the result.
@@ -211,18 +239,35 @@ class ArmController:
     # Motion helpers
 
     def _wait_for_idle(self) -> None:
-        """Poll until the arm reports state==1 (idle) or we lose connection.
+        """Block until the current motion finishes, faults, or times out.
 
-        Called *outside* _sdk_lock so that the telemetry poller can still read
-        joint angles while we wait.
+        xArm state codes: 1 = in motion, 2 = ready/idle, 3 = paused,
+        4 = stopped, 6 = decelerating. A wait=False move takes a moment to
+        register, so we first wait (briefly) for the arm to *enter* state 1,
+        then poll until it *leaves* it — reaching idle, or being stopped by a
+        fault / e-stop. If motion never registers within _MOTION_START_TIMEOUT
+        the move was a no-op (or already finished) and we return. The overall
+        _MOTION_TIMEOUT bound guarantees we never spin here forever holding
+        _cmd_lock when the arm is stuck or faulted.
+
+        Called *outside* _sdk_lock so the telemetry poller keeps reading while
+        we wait.
         """
-        while True:
+        now = time.monotonic()
+        deadline = now + _MOTION_TIMEOUT
+        start_deadline = now + _MOTION_START_TIMEOUT
+        started = False
+        while time.monotonic() < deadline:
             with self._sdk_lock:
                 if not self._connected or self._arm is None:
                     return
                 state = self._arm.state
-            if state == 1:  # idle
+            if state == 1:  # in motion
+                started = True
+            elif started:  # was moving, now idle/stopped -> done
                 return
+            elif time.monotonic() >= start_deadline:
+                return  # motion never registered (short / no-op move)
             time.sleep(_MOTION_POLL_INTERVAL)
 
     # ------------------------------------------------------------------
