@@ -68,6 +68,16 @@ _MOTION_START_TIMEOUT = 0.5
 # holding _cmd_lock.
 _MOTION_TIMEOUT = 30.0
 
+# xArm controller state codes (XArmAPI.state), per UFactory's "robot state and
+# mode" docs. Only IDLE (motion complete) and STOPPED (fault / e-stop) are
+# terminal for a motion; MOVING / PAUSED / DECELERATING all mean the arm is
+# still active and _wait_for_idle must keep waiting.
+_STATE_MOVING = 1
+_STATE_IDLE = 2
+_STATE_PAUSED = 3
+_STATE_STOPPED = 4
+_STATE_DECEL = 6
+
 
 @dataclass
 class ArmStatus:
@@ -241,14 +251,15 @@ class ArmController:
     def _wait_for_idle(self) -> None:
         """Block until the current motion finishes, faults, or times out.
 
-        xArm state codes: 1 = in motion, 2 = ready/idle, 3 = paused,
-        4 = stopped, 6 = decelerating. A wait=False move takes a moment to
-        register, so we first wait (briefly) for the arm to *enter* state 1,
-        then poll until it *leaves* it — reaching idle, or being stopped by a
-        fault / e-stop. If motion never registers within _MOTION_START_TIMEOUT
-        the move was a no-op (or already finished) and we return. The overall
-        _MOTION_TIMEOUT bound guarantees we never spin here forever holding
-        _cmd_lock when the arm is stuck or faulted.
+        A wait=False move takes a moment to register, so we first wait (briefly)
+        for the arm to leave idle and become active (MOVING / PAUSED / DECEL),
+        then poll until it reaches a *terminal* state — IDLE (motion complete)
+        or STOPPED (fault / e-stop). Transitional states (paused, decelerating)
+        are NOT treated as completion, so we never let the next command fire
+        while the arm is still moving. If motion never registers within
+        _MOTION_START_TIMEOUT the move was a no-op (or already finished) and we
+        return. The overall _MOTION_TIMEOUT bound guarantees we never spin here
+        forever holding _cmd_lock when the arm is stuck or faulted.
 
         Called *outside* _sdk_lock so the telemetry poller keeps reading while
         we wait.
@@ -256,18 +267,21 @@ class ArmController:
         now = time.monotonic()
         deadline = now + _MOTION_TIMEOUT
         start_deadline = now + _MOTION_START_TIMEOUT
+        active = (_STATE_MOVING, _STATE_PAUSED, _STATE_DECEL)
+        terminal = (_STATE_IDLE, _STATE_STOPPED)
         started = False
         while time.monotonic() < deadline:
             with self._sdk_lock:
                 if not self._connected or self._arm is None:
                     return
                 state = self._arm.state
-            if state == 1:  # in motion
-                started = True
-            elif started:  # was moving, now idle/stopped -> done
-                return
-            elif time.monotonic() >= start_deadline:
-                return  # motion never registered (short / no-op move)
+            if not started:
+                if state in active:
+                    started = True  # motion has begun
+                elif time.monotonic() >= start_deadline:
+                    return  # never registered (short / no-op move)
+            elif state in terminal:
+                return  # idle (done) or stopped (fault / e-stop)
             time.sleep(_MOTION_POLL_INTERVAL)
 
     # ------------------------------------------------------------------
