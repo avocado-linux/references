@@ -56,6 +56,11 @@ GRIPPER_STOPPED = "stopped"
 # How often the background telemetry thread polls the SDK (Hz).
 _TELEMETRY_HZ = 60.0
 
+# Consecutive telemetry read failures before status() is flipped to
+# disconnected. Without this a link drop freezes the cache at the last
+# "connected" snapshot forever.
+_TELEMETRY_MAX_FAILURES = 30
+
 # How often to poll for motion completion inside _wait_for_idle (seconds).
 _MOTION_POLL_INTERVAL = 0.05
 
@@ -109,6 +114,10 @@ class ArmController:
         self._mock_t0 = time.monotonic()
         self._connected = False
         self._gripper_state = GRIPPER_UNKNOWN
+        # Set by emergency_stop(); motion commands refuse to run until
+        # clear_faults() re-arms the arm and clears this. Keeps an e-stop
+        # "sticky" so a sequence thread can't resume moving right after it.
+        self._estopped = False
 
         # Cached telemetry snapshot — written by _telemetry_loop, read by
         # status().  The reference is replaced atomically (Python GIL) so
@@ -186,11 +195,21 @@ class ArmController:
         calls (~1-3 ms over Ethernet), so motion commands can still interleave.
         """
         interval = 1.0 / _TELEMETRY_HZ
+        failures = 0
         while not self._telemetry_stop.is_set():
             try:
                 self._cached_status = self._read_status_from_sdk()
+                failures = 0
             except Exception:
-                pass  # keep polling — transient SDK errors shouldn't kill the thread
+                # Transient errors shouldn't kill the thread — keep polling. But
+                # a sustained failure (e.g. a dropped link) means the cache is
+                # stale, so stop reporting the arm as connected.
+                failures += 1
+                if failures >= _TELEMETRY_MAX_FAILURES:
+                    self._cached_status = ArmStatus(
+                        connected=False, mock=self._mock, robot_mode=-1, state=-1,
+                        error_code=-1, warn_code=-1, gripper=self._gripper_state,
+                    )
             self._telemetry_stop.wait(interval)
 
     def _read_status_from_sdk(self) -> ArmStatus:
@@ -292,7 +311,7 @@ class ArmController:
         """Joint-space move to all-zero pose."""
         with self._cmd_lock:
             with self._sdk_lock:
-                if self._mock or self._arm is None:
+                if self._mock or self._arm is None or self._estopped:
                     return
                 self._arm.set_servo_angle(
                     angle=HOME_JOINTS_DEG, speed=speed_deg_s, wait=False, is_radian=False
@@ -313,7 +332,7 @@ class ArmController:
         """
         with self._cmd_lock:
             with self._sdk_lock:
-                if self._mock or self._arm is None:
+                if self._mock or self._arm is None or self._estopped:
                     return
                 self._arm.set_position(
                     x=x, y=y, z=z, roll=roll, pitch=pitch, yaw=yaw,
@@ -326,7 +345,7 @@ class ArmController:
         """Joint-space move with point-to-point interpolation."""
         with self._cmd_lock:
             with self._sdk_lock:
-                if self._mock or self._arm is None:
+                if self._mock or self._arm is None or self._estopped:
                     return
                 self._arm.set_servo_angle(
                     angle=angles_deg, speed=speed_deg_s, wait=False, is_radian=False
@@ -338,12 +357,14 @@ class ArmController:
         return self.move_line(*args, **kwargs)
 
     def emergency_stop(self) -> None:
+        # Sticky: latch the stop so an in-flight sequence's remaining moves are
+        # refused, and leave the arm disabled. Recovery is explicit via
+        # clear_faults() (POST /clear), which re-arms and clears the latch.
         with self._sdk_lock:
+            self._estopped = True
             if self._mock or self._arm is None:
                 return
             self._arm.emergency_stop()
-            self._arm.motion_enable(enable=True)
-            self._arm.set_state(0)
 
     # ------------------------------------------------------------------
     # Lite 6 gripper. The Lite 6 has its own pneumatic gripper API in the
@@ -385,9 +406,13 @@ class ArmController:
 
         After a collision, joint-limit, or other fault the arm latches an
         error code and refuses motion commands until the fault is cleared.
-        Without this primitive the only recovery is a power cycle.
+        Without this primitive the only recovery is a power cycle. Also
+        releases the emergency-stop latch set by emergency_stop().
         """
         with self._sdk_lock:
+            # Release the e-stop latch first, so this recovers mock mode too
+            # (which returns before touching the SDK below).
+            self._estopped = False
             if self._mock or self._arm is None:
                 return
             self._arm.clean_error()
