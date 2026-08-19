@@ -1,6 +1,7 @@
 ---
 language: Python
 targets:
+  - imx95-frdm
   - imx8mp-evk
   - imx91-frdm
   - imx93-evk
