@@ -20,6 +20,7 @@ ExecStartPre=/usr/libexec/avocado-deepstream-preflight.sh
 # collateral damage). Defining the system path overrides — not augments —
 # the built-in default, so /usr/lib/gstreamer-1.0 is never scanned directly.
 Environment=GST_PLUGIN_SYSTEM_PATH_1_0=/run/avocado-gst-plugins
+Environment=USE_NEW_NVSTREAMMUX=yes
 
 ExecStart=/usr/bin/python3 /usr/local/bin/app.py
 Restart=on-failure
