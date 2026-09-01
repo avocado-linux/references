@@ -99,6 +99,7 @@ extensions:
 
       # Inference backend (DeepStream's nvinfer wraps this)
       tensorrt-core: "*"
+      tensorrt-trtexec-prebuilt: "*"
 
       # CUDA + cuDNN runtime libs
       cuda-cudart: "*"
