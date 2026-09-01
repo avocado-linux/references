@@ -13,9 +13,9 @@ icon: icon.png
 
 # <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> NVIDIA DeepStream
 
-A native Avocado reference that runs NVIDIA DeepStream 7.1 on Jetson Orin hardware — no containers. A USB camera feeds a DeepStream GStreamer pipeline that detects and tracks people, extracts a body skeleton and per-hand finger keypoints, counts ROI dwell time, and serves the annotated video as an MJPEG stream with a web dashboard.
+A native Avocado reference that runs NVIDIA DeepStream 9.1 on Jetson Orin hardware — no containers. A USB camera feeds a DeepStream GStreamer pipeline that detects and tracks people, extracts a body skeleton and per-hand finger keypoints, counts ROI dwell time, and serves the annotated video as an MJPEG stream with a web dashboard.
 
-- DeepStream 7.1 runs entirely from Avocado sysext extensions — no Docker, no `nvcr.io` pulls
+- DeepStream 9.1 runs entirely from Avocado sysext extensions — no Docker, no `nvcr.io` pulls
 - The pipeline is split across five cohesive extensions (runtime / models / engines / config / app) so each kind of change ships only the bytes that changed over OTA — see [Extension layout](#extension-layout)
 - Prebuilt TensorRT FP16 engines (PeopleNet + MoveNet + YOLOX-Hand + Hand-Landmark) ship read-only in the `vision-engines` extension and are memory-mapped on load — no on-device compile, no var-partition staging
 - Multi-class detection (Person / Bag / Face) with persistent tracker IDs from NvDCF

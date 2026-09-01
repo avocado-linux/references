@@ -5,14 +5,15 @@ default_target: "jetson-orin-nano-devkit"
 supported_targets:
   - jetson-orin-nano-devkit
   - jetson-agx-orin-devkit
+  - jetson-agx-thor
 
 ##
 ## Distribution
 ##
 
 distro:
-  release: 2024
-  channel: edge
+  release: 2026
+  channel: next
 
 ##
 ## Runtimes
@@ -89,12 +90,12 @@ extensions:
       - sysext
       - confext
     version: "0.1.0"
-    summary: "DeepStream 7.1 + CUDA/TensorRT/GStreamer/Python runtime for the vision pipeline"
+    summary: "DeepStream 9.1 + CUDA/TensorRT/GStreamer/Python runtime for the vision pipeline"
 
     packages:
       # The DeepStream runtime + Python bindings (pyds)
-      deepstream-7.1: "*"
-      deepstream-7.1-pyds: "*"
+      deepstream-9.1: "*"
+      deepstream-9.1-pyds: "*"
 
       # Inference backend (DeepStream's nvinfer wraps this)
       tensorrt-core: "*"
