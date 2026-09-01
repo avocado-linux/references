@@ -101,6 +101,10 @@ extensions:
       tensorrt-core: "*"
       tensorrt-trtexec-prebuilt: "*"
 
+      # PVA — the NvDCF tracker's VPI feature extractor loads
+      # libnvpvaumd_core.so at runtime. Not a transitive dep of deepstream.
+      tegra-libraries-pva: "*"
+
       # CUDA + cuDNN runtime libs
       cuda-cudart: "*"
       cuda-libraries: "*"
