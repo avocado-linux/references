@@ -1,10 +1,10 @@
 cli_requirement: ">=0.41.0"
 
-default_target: "jetson-orin-nano-devkit"
+default_target: "jetson-orin-nano"
 
 supported_targets:
-  - jetson-orin-nano-devkit
-  - jetson-agx-orin-devkit
+  - jetson-orin-nano
+  - jetson-agx-orin
   - jetson-agx-thor
 
 ##
@@ -13,7 +13,7 @@ supported_targets:
 
 distro:
   release: 2026
-  channel: next
+  channel: edge
 
 ##
 ## Runtimes
