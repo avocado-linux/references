@@ -1425,8 +1425,7 @@ def _build_pipeline():
         "nvvideoconvert",
         "video/x-raw(memory:NVMM),format=NV12",
         "mux.sink_0 "
-        f"nvstreammux name=mux batch-size=1 width={WIDTH} height={HEIGHT} "
-        f"batched-push-timeout=40000 live-source=1",
+        "nvstreammux name=mux batch-size=1",
         f"nvinfer name=peoplenet config-file-path={INFER_CONFIG}",
         f"nvtracker ll-lib-file={TRACKER_LIB} ll-config-file={TRACKER_CONFIG} "
         f"tracker-width=640 tracker-height=384 gpu-id=0",
