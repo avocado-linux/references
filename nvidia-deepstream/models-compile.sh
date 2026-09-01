@@ -6,7 +6,7 @@
 #   1. Download PeopleNet (~25 MB) from NGC into the model dir.
 #   2. Download MoveNet single-pose Lightning (~9 MB) from PINTO's
 #      pre-converted ONNX zoo for the secondary skeleton inference, and
-#      rewrite its input layer from NHWC to NCHW so DS 7.1's nvinfer can
+#      rewrite its input layer from NHWC to NCHW so DS 9.1's nvinfer can
 #      consume it without choking on the channel-dimension check.
 #   3. Download YOLOX-Body-Head-Hand (~4 MB) — a single-stage detector
 #      whose `hand` class drives the optional finger-tracking pipeline.
@@ -76,7 +76,7 @@ else
   tar -xzf "$TMP/movenet.tar.gz" -C "$TMP" saved_model/model_float32.onnx
 
   # The shipped ONNX has an NHWC input ([1, 192, 192, 3]). nvinfer's
-  # preprocessing in DS 7.1 hard-codes the channel dim at axis 1 (NCHW)
+  # preprocessing in DS 9.1 hard-codes the channel dim at axis 1 (NCHW)
   # — `network-input-order=1` flips the inference shape but doesn't move
   # the channel check, so it still complains "RGB/BGR input format
   # specified but network input channels is not 3" and refuses to build
@@ -139,7 +139,7 @@ else
   # [1, 2100, 8] tensor: 2100 anchors x (cx, cy, w, h, obj, c0, c1, c2).
   # We do grid decode + NMS in app.py. Why not the `_post_` build? It bakes
   # in a `NonMaxSuppression` op with a dynamic `[N, 7]` output, and
-  # nvinfer/TRT in DS 7.1 doesn't expose an output optimization profile —
+  # nvinfer/TRT in DS 9.1 doesn't expose an output optimization profile —
   # the engine ends up with N=1, so only the single top-scoring detection
   # per frame reaches us (always body, never hands). Fixed-shape output
   # sidesteps that.

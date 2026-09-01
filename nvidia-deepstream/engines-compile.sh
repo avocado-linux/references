@@ -15,11 +15,17 @@
 #
 # Engines are loaded at runtime directly from the read-only extension at
 # /usr/lib/nvidia-deepstream/engines/<model>/ (the nvinfer configs point
-# there). There is deliberately NO on-device compile fallback and NO /var
-# staging: on an immutable OS the engine is shipped, dm-verity-verified, and
-# OTA-able as part of this extension. The consequence is a hard requirement —
-# every supported target MUST have prebuilt engines committed here. To add a
-# target, see "Regenerating engines" in getting_started.md.
+# there). There is no on-device compile fallback and no /var staging: on an
+# immutable OS the engine is shipped, dm-verity-verified, and OTA-able as
+# part of this extension.
+#
+# When prebuilt engines are missing for the current target (e.g. first-time
+# bring-up on new hardware), the build succeeds with a warning and produces
+# an image WITHOUT engines. The vision-app service will fail to start on
+# that image (nvinfer can't load a missing engine file), but you CAN still
+# provision the device and SSH in to build engines with trtexec. Once built,
+# scp them back to prebuilt-engines/<target>/<model>/, rebuild, and redeploy.
+# See "Regenerating engines" in getting_started.md.
 
 set -euo pipefail
 
@@ -30,15 +36,16 @@ ENGINE_DST_BASE="vision-engines/overlay/usr/lib/nvidia-deepstream/engines"
 echo "Staging prebuilt TensorRT engines for target: ${TARGET}"
 
 if [ ! -d "$ENGINE_SRC_BASE" ]; then
-  echo "ERROR: no prebuilt engines directory for target '${TARGET}' at" >&2
-  echo "       ${ENGINE_SRC_BASE}/. This reference loads engines from the" >&2
-  echo "       read-only extension; there is no on-device compile fallback." >&2
-  echo "       Build engines on matching hardware and commit them under" >&2
-  echo "       ${ENGINE_SRC_BASE}/<model>/ (see getting_started.md)." >&2
-  exit 1
+  echo "WARNING: no prebuilt engines directory for target '${TARGET}' at" >&2
+  echo "         ${ENGINE_SRC_BASE}/." >&2
+  echo "         The image will build but vision-app will NOT start until" >&2
+  echo "         engines are built on-device and committed. See" >&2
+  echo "         'Regenerating engines' in getting_started.md." >&2
+  exit 0
 fi
 
 staged=0
+missing=0
 for model in peoplenet movenet handdet handlandmark; do
   src_dir="$ENGINE_SRC_BASE/$model"
   dst_dir="$ENGINE_DST_BASE/$model"
@@ -47,10 +54,14 @@ for model in peoplenet movenet handdet handlandmark; do
     cp -v "$src_dir"/*.engine "$dst_dir/"
     staged=$((staged + 1))
   else
-    echo "ERROR: no engine for '${model}' under ${src_dir}/." >&2
-    echo "       Every model needs a committed engine for this target." >&2
-    exit 1
+    echo "WARNING: no engine for '${model}' under ${src_dir}/." >&2
+    missing=$((missing + 1))
   fi
 done
 
-echo "Staged engines for ${staged} models."
+if [ "$missing" -gt 0 ]; then
+  echo "WARNING: ${missing} model(s) missing engines. vision-app will not" >&2
+  echo "         start until all 4 engines are present." >&2
+fi
+
+echo "Staged engines for ${staged} of 4 models."

@@ -1,6 +1,6 @@
 # <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Getting Started with NVIDIA DeepStream
 
-Run DeepStream 7.1 natively on a Jetson Orin Nano (or AGX Orin) — no containers. A USB camera is fed through a GStreamer pipeline that detects people with PeopleNet, tracks them across frames with NvDCF, runs MoveNet (secondary GIE) to extract a 17-point COCO skeleton per person, runs YOLOX-Body-Head-Hand (second primary GIE) on the full frame to find hands, runs MediaPipe Hand Landmark (tertiary GIE) on each hand crop to regress 21 finger keypoints, and applies `nvdsanalytics` for ROI entry counters and dwell-time tracking. Bounding boxes, skeletons, hand keypoints, and zone overlays are rasterised by `nvdsosd` directly into the JPEG stream; the dashboard at `:8080` serves the resulting MJPEG plus a JSON stats endpoint.
+Run DeepStream 9.1 natively on a Jetson Orin Nano (or AGX Orin) — no containers. A USB camera is fed through a GStreamer pipeline that detects people with PeopleNet, tracks them across frames with NvDCF, runs MoveNet (secondary GIE) to extract a 17-point COCO skeleton per person, runs YOLOX-Body-Head-Hand (second primary GIE) on the full frame to find hands, runs MediaPipe Hand Landmark (tertiary GIE) on each hand crop to regress 21 finger keypoints, and applies `nvdsanalytics` for ROI entry counters and dwell-time tracking. Bounding boxes, skeletons, hand keypoints, and zone overlays are rasterised by `nvdsosd` directly into the JPEG stream; the dashboard at `:8080` serves the resulting MJPEG plus a JSON stats endpoint.
 
 ## Prerequisites
 
@@ -34,7 +34,7 @@ cd nvidia-deepstream
 avocado install -f
 ```
 
-Downloads the Avocado SDK container and the runtime extensions declared in `avocado.yaml` (DeepStream 7.1, TensorRT, CUDA, cuDNN, the GStreamer NVIDIA plugins, Python).
+Downloads the Avocado SDK container and the runtime extensions declared in `avocado.yaml` (DeepStream 9.1, TensorRT, CUDA, cuDNN, the GStreamer NVIDIA plugins, Python).
 
 ## Build
 
@@ -45,7 +45,7 @@ avocado build
 `models-compile.sh` (the `vision-models` extension's compile hook) runs inside the SDK and stages four ONNX models into `vision-models/overlay/usr/lib/nvidia-deepstream/models/`:
 
 1. **PeopleNet** ONNX + labels from NGC (Person/Bag/Face detector). Used as the primary GIE.
-2. **MoveNet** (single-pose Lightning) from PINTO's ONNX zoo — extract just `model_float32.onnx` and rewrite its input layer from NHWC to NCHW (a small `onnx.helper` Transpose insertion) so DS 7.1's `nvinfer` reads it cleanly. Used as secondary GIE on each Person crop for the 17-point body skeleton.
+2. **MoveNet** (single-pose Lightning) from PINTO's ONNX zoo — extract just `model_float32.onnx` and rewrite its input layer from NHWC to NCHW (a small `onnx.helper` Transpose insertion) so DS 9.1's `nvinfer` reads it cleanly. Used as secondary GIE on each Person crop for the 17-point body skeleton.
 3. **YOLOX-Body-Head-Hand (320×320, non-post variant)** from PINTO — used as a second primary GIE on the full camera frame to find hands. The Python pad probe decodes the raw head output (grid + log-space + sigmoid) and applies per-class NMS in app.py.
 4. **MediaPipe Hand Landmark sparse (224×224)** from PINTO's `hand_landmark` GitHub release — used as tertiary GIE on each detected hand crop to produce 21 finger keypoints + handedness + presence score.
 

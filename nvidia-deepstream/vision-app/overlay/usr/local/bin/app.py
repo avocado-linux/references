@@ -70,7 +70,7 @@ import pyds
 
 from flask import Flask, Response, jsonify
 
-# pyds in DeepStream 7.1 no longer exports UNTRACKED_OBJECT_ID at module level
+# pyds in DeepStream 9.1 no longer exports UNTRACKED_OBJECT_ID at module level
 # (older versions did). The underlying NvDsObjectMeta.object_id is set to
 # UINT64_MAX (0xFFFFFFFFFFFFFFFF) when a detection has no tracker association.
 # Fall back to that literal when the symbol isn't there.
@@ -377,7 +377,7 @@ def _read_movenet_keypoints(tensor_meta, rect_params):
     # gives us the int address of the void** array; we then walk it with
     # ctypes to pull the address of layer 0's actual data, then re-cast to
     # a float* for the keypoint values. (NvDsInferLayerInfo.buffer also
-    # exists but reads as 0 on DS 7.1 in this configuration; the host-side
+    # exists but reads as 0 on DS 9.1 in this configuration; the host-side
     # pointer array is the documented path.)
     arr_addr = pyds.get_ptr(tensor_meta.out_buf_ptrs_host)
     if not arr_addr:

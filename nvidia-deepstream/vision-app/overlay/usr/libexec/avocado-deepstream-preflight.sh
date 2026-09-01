@@ -23,7 +23,7 @@
 # curate a GStreamer plugin scan directory that excludes
 # libcustom2d_preprocess.so.
 #
-#   The deepstream-7.1 package installs a helper library at
+#   The deepstream-9.1 package installs a helper library at
 #   /usr/lib/gstreamer-1.0/deepstream/libcustom2d_preprocess.so. It is not a
 #   GStreamer plugin (it's used by nvdspreprocess, which this reference
 #   doesn't use), but the plugin scanner subprocess loads every .so in that

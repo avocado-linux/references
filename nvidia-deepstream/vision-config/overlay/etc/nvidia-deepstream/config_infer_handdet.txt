@@ -14,7 +14,7 @@
 # hand-landmark GIE then operates on.
 #
 # Why not the `_post_` variant (with NMS baked in)? Its output is the
-# dynamic-shape [N, 7] tensor. nvinfer / TRT 10 in DS 7.1 doesn't expose
+# dynamic-shape [N, 7] tensor. nvinfer / TRT 10 in DS 9.1 doesn't expose
 # an output optimization profile, so the engine ends up sized for N=1
 # and only the highest-scoring detection across all classes per frame
 # survives — usually body, never hands.
