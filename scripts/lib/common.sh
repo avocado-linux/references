@@ -13,8 +13,10 @@
 #   verify_clean [VOLUME]         assert no state/lock/volume left behind
 #   docker_prune [LEVEL]          scoped (default) | images | all
 #   sdk_image_exists RELEASE      docker manifest probe for avocadolinux/sdk
-#   feed_targets REL CHAN         targets published in that feed (targets.json)
-#   feed_boards REL CHAN TGT      boards = avocado-bsp-* in the target's -ext repo
+#   feed_targets REL CHAN         targets published in that feed (targets.json);
+#                                 empty = absent (404), rc 1 = could not determine
+#   feed_boards REL CHAN TGT      boards = avocado-bsp-* in the target's -ext repo;
+#                                 bare target if none, rc 1 = could not determine
 #
 # Environment (all optional):
 #   PRUNE_LEVEL        scoped | images | all       (default: scoped)
@@ -133,28 +135,66 @@ sdk_image_exists() {
   docker manifest inspect "docker.io/avocadolinux/sdk:$1" >/dev/null 2>&1
 }
 
-# Board targets published in RELEASE/CHANNEL, one per line, from the feed's
+# Fetch URL to FILE. rc 0 = 200, rc 44 = 404 (absent), rc 1 = anything else
+# (network error, 5xx, ...). Callers must treat 1 as "unknown", never as
+# "empty" — otherwise a transient failure silently shrinks coverage and the
+# sweep goes green on a partial matrix.
+_fetch() {
+  local url="$1" out="$2" code
+  code="$(curl -s -o "$out" -w '%{http_code}' "$url" 2>/dev/null)" || code="000"
+  case "$code" in
+    200) return 0 ;;
+    404) return 44 ;;
+    *)   echo "    ❌ fetch failed (HTTP $code): $url" >&2; return 1 ;;
+  esac
+}
+
+# Targets published in RELEASE/CHANNEL, one per line, from the feed's
 # targets.json — the source of truth (the CLI deliberately refuses to
-# enumerate targets for supported_targets: '*'). Empty output = feed absent.
+# enumerate targets for supported_targets: '*').
+#   rc 0 + output  = published list;  rc 0 + empty = feed absent (404);
+#   rc 1           = could not determine (fetch/parse error) — abort, don't skip.
 # ponytail: 2024/edge also lists tune/arch keys (cortexa53, x86_64_v2, noarch,
 # qcm6490 SoC); they are filtered by NON_BOARD_RE. Boards never use '_'.
 NON_BOARD_RE='_|^noarch$|^qcm[0-9]+$'
 feed_targets() {
-  curl -sf "$AVOCADO_REPO_URL/$1/$2/targets.json" 2>/dev/null \
-    | jq -r 'keys[]' 2>/dev/null | grep -vE "$NON_BOARD_RE" | sort
+  local tmp rc
+  tmp="$(mktemp)"
+  _fetch "$AVOCADO_REPO_URL/$1/$2/targets.json" "$tmp"; rc=$?
+  case $rc in
+    44) rm -f "$tmp"; return 0 ;;
+    0)  ;;
+    *)  rm -f "$tmp"; return 1 ;;
+  esac
+  if ! jq -e 'type == "object"' "$tmp" >/dev/null 2>&1; then
+    rm -f "$tmp"; echo "    ❌ targets.json for $1/$2 is not valid JSON" >&2; return 1
+  fi
+  jq -r 'keys[]' "$tmp" | grep -vE "$NON_BOARD_RE" | sort
+  rm -f "$tmp"
+  return 0
 }
 
 # Boards published for TARGET in RELEASE/CHANNEL: the avocado-bsp-<board>
 # packages in the target's -ext repo, one per line. With no board set the CLI
 # resolves {{ avocado.target.board }} to the target itself, so when the -ext
-# repo publishes no BSP at all we still emit the bare target — the cell then
-# runs and its failure is caught rather than silently skipped.
+# repo publishes no BSP (or has no repodata at all, 404) we still emit the
+# bare target — the cell then runs and its failure is caught rather than
+# silently skipped. Any other fetch/decompress error returns 1: unknown, abort.
 feed_boards() {
-  local release="$1" channel="$2" target="$3" base primary out
+  local release="$1" channel="$2" target="$3" base primary tmp out rc
   base="$AVOCADO_REPO_URL/$release/$channel/target/$target-ext"
-  primary="$(curl -sf "$base/repodata/repomd.xml" 2>/dev/null \
-             | grep -o 'href="[^"]*primary.xml[^"]*"' | head -1 | cut -d'"' -f2)"
-  out="$( [ -n "$primary" ] && curl -sf "$base/$primary" 2>/dev/null | gunzip -c 2>/dev/null \
-          | grep -oE '<name>avocado-bsp-[^<]+</name>' | sed 's/<name>avocado-bsp-//;s/<\/name>//' | sort -u )"
+  tmp="$(mktemp)"
+  _fetch "$base/repodata/repomd.xml" "$tmp"; rc=$?
+  case $rc in
+    44) rm -f "$tmp"; printf '%s\n' "$target"; return 0 ;;
+    0)  ;;
+    *)  rm -f "$tmp"; return 1 ;;
+  esac
+  primary="$(grep -o 'href="[^"]*primary.xml[^"]*"' "$tmp" | head -1 | cut -d'"' -f2)"
+  if [ -z "$primary" ]; then rm -f "$tmp"; echo "    ❌ no primary.xml listed in $base/repodata/repomd.xml" >&2; return 1; fi
+  if ! _fetch "$base/$primary" "$tmp"; then rm -f "$tmp"; return 1; fi
+  if ! out="$(gunzip -c "$tmp" 2>/dev/null)"; then rm -f "$tmp"; echo "    ❌ could not decompress $base/$primary" >&2; return 1; fi
+  rm -f "$tmp"
+  out="$(printf '%s' "$out" | grep -oE '<name>avocado-bsp-[^<]+</name>' | sed 's/<name>avocado-bsp-//;s/<\/name>//' | sort -u)"
   if [ -n "$out" ]; then printf '%s\n' "$out"; else printf '%s\n' "$target"; fi
 }

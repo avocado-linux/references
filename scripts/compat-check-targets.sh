@@ -185,15 +185,18 @@ render_report() {
 # image or no targets.json contributes nothing and is reported on stderr.
 plan() {
   if [ -n "$CELLS_OVERRIDE" ]; then printf '%s\n' "$CELLS_OVERRIDE" | awk 'NF==4'; return; fi
-  local combo r c t b list
+  local combo r c t b list boards
   for combo in $COMBOS; do
     r="${combo%/*}"; c="${combo#*/}"
     if ! sdk_image_exists "$r"; then echo "    – sdk:$r image missing; skipping $combo" >&2; continue; fi
-    list="$(feed_targets "$r" "$c")"
+    # A fetch/parse error is NOT "nothing published": abort rather than run a
+    # partial matrix that would go green.
+    list="$(feed_targets "$r" "$c")" || { echo "    ❌ cannot determine targets for $combo — aborting" >&2; return 1; }
     if [ -z "$list" ]; then echo "    – no targets.json for $combo; skipping" >&2; continue; fi
     for t in $list; do
       if [ -n "$ONLY_TARGETS" ] && ! printf '%s\n' $ONLY_TARGETS | grep -qx "$t"; then continue; fi
-      for b in $(feed_boards "$r" "$c" "$t"); do echo "$t $b $r $c"; done
+      boards="$(feed_boards "$r" "$c" "$t")" || { echo "    ❌ cannot determine boards for $t @ $combo — aborting" >&2; return 1; }
+      for b in $boards; do echo "$t $b $r $c"; done
     done
   done
 }
@@ -273,9 +276,9 @@ run_cell() {
 # --- main -------------------------------------------------------------------
 case "$MODE" in
   --plan)
-    plan ;;
+    plan || { echo "preflight failed" >&2; exit 1; } ;;
   --report)
-    PLANNED="$(plan 2>/dev/null)"
+    PLANNED="$(plan 2>/dev/null)" || true   # report renders whatever cells exist
     render_report
     cat "$REPORT_FILE"
     all_passed ;;
@@ -288,7 +291,7 @@ case "$MODE" in
     [ -n "$ONLY_TARGETS" ] && echo "   targets: $ONLY_TARGETS (narrowed)"
     echo "==========================================================="
     echo "-- preflight (sdk image + feed discovery) --"
-    PLANNED="$(plan)"
+    PLANNED="$(plan)" || { echo "preflight failed — not running a partial matrix" >&2; exit 1; }
     render_report
     echo "   cells: $(printf '%s\n' "$PLANNED" | grep -c . || true)"
     stop=0
