@@ -8,3 +8,6 @@
 .avocado-desktop.json
 .avocado/
 .avocado-state
+
+# Per-cell scratch copies of dev/ made by scripts/compat-check-targets.sh.
+.compat-scratch/
