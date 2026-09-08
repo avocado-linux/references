@@ -1,0 +1,148 @@
+name: Compat Check
+
+# Target x release/channel compatibility sweep of the `dev` reference — the CI
+# counterpart of scripts/compat-check-targets.sh. The script does all the work;
+# this workflow only fans it out: `--plan` discovers (target, board) pairs from
+# each feed (targets.json + avocado-bsp-* packages — the source of truth for
+# what is published), each matrix leg runs ONE cell via CELLS=..., and
+# `--report` aggregates the cell files into the same markdown matrix the local
+# run produces. Any failed cell fails the run — there is no skip-list.
+#
+# Not run on pull requests: ~100 cells is too much for every push. Weekly, or
+# on demand (optionally narrowed to a few targets / combos).
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: Space-separated targets to narrow to (empty = every target the feeds publish)
+        type: string
+        default: ""
+      combos:
+        description: Space-separated release/channel combos (empty = all four)
+        type: string
+        default: ""
+  schedule:
+    # Weekly, Sunday 04:00 UTC — before Monday's build-check sweep.
+    - cron: "0 4 * * 0"
+
+concurrency:
+  group: compat-check-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  TARGETS: ${{ inputs.targets }}
+  COMBOS: ${{ inputs.combos }}
+
+jobs:
+  plan:
+    name: Plan cells (SDK image + feed discovery)
+    runs-on: ubuntu-latest
+    outputs:
+      cells: ${{ steps.plan.outputs.cells }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Discover cells
+        id: plan
+        run: |
+          set -euo pipefail
+          # Empty inputs must fall through to the script defaults.
+          [ -z "$TARGETS" ] && unset TARGETS; [ -z "$COMBOS" ] && unset COMBOS
+          scripts/compat-check-targets.sh --plan > cells.txt
+          echo "runnable cells:"; cat cells.txt
+          # -> [{"target":"jetson-orin-nx","board":"icam-540","release":"2024","channel":"edge"}, ...]
+          cells="$(awk 'NF==4 {printf "{\"target\":\"%s\",\"board\":\"%s\",\"release\":\"%s\",\"channel\":\"%s\"}\n",$1,$2,$3,$4}' cells.txt \
+                   | jq -sc .)"
+          echo "cells=$cells" >> "$GITHUB_OUTPUT"
+      - name: Upload plan
+        # The report job re-uses this exact cell list (rows + "published per
+        # feed") instead of re-discovering from the feed.
+        uses: actions/upload-artifact@v6
+        with:
+          name: plan
+          path: cells.txt
+          retention-days: 14
+  cell:
+    name: ${{ matrix.cell.target }} · ${{ matrix.cell.board }} @ ${{ matrix.cell.release }}/${{ matrix.cell.channel }}
+    needs: plan
+    if: needs.plan.outputs.cells != '[]'
+    strategy:
+      fail-fast: false
+      # Every leg pulls an SDK image and a target feed; keep the fan-out polite.
+      max-parallel: 8
+      matrix:
+        cell: ${{ fromJSON(needs.plan.outputs.cells) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Free runner disk space
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          sudo docker image prune -af >/dev/null
+          df -h /
+
+      - name: Enable qemu binfmt for foreign-arch targets
+        uses: docker/setup-qemu-action@v4
+
+      - name: Install avocado CLI
+        uses: avocado-linux/actions/setup-avocado-cli@v1
+
+      - name: Run cell
+        # continue-on-error: the cell result lives in the .cell file; the
+        # report job fails the run if any cell failed.
+        continue-on-error: true
+        env:
+          CELLS: ${{ matrix.cell.target }} ${{ matrix.cell.board }} ${{ matrix.cell.release }} ${{ matrix.cell.channel }}
+          COMBOS: ${{ matrix.cell.release }}/${{ matrix.cell.channel }}
+          LOG_DIR: ${{ github.workspace }}/compat-logs
+          REPORT_FILE: ${{ github.workspace }}/compat-logs/cell-report.md
+        run: scripts/compat-check-targets.sh
+
+      - name: Upload cell result + log
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: cell-${{ matrix.cell.target }}-${{ matrix.cell.board }}-${{ matrix.cell.release }}-${{ matrix.cell.channel }}
+          path: |
+            compat-logs/cells/
+            compat-logs/*.log
+          retention-days: 14
+
+  report:
+    name: Aggregate report
+    needs: [plan, cell]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Download cell results
+        uses: actions/download-artifact@v7
+        with:
+          pattern: cell-*
+          path: compat-logs
+          merge-multiple: true
+      - name: Download plan
+        uses: actions/download-artifact@v7
+        with:
+          name: plan
+      - name: Render report
+        env:
+          LOG_DIR: ${{ github.workspace }}/compat-logs
+          REPORT_FILE: ${{ github.workspace }}/compat-report.md
+        run: |
+          set -uo pipefail
+          [ -z "$COMBOS" ] && unset COMBOS
+          CELLS="$(cat cells.txt)" scripts/compat-check-targets.sh --report | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: compat-report
+          path: compat-report.md
+          retention-days: 90
