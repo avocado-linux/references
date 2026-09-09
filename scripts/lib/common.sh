@@ -10,7 +10,7 @@
 #   state_volume [DIR]            docker volume named in DIR/.avocado-state
 #   avocado_light_reset           drop exited containers; keep volume, stamps, lock
 #   avocado_full_reset TARGET     light reset, then volume/state/lock/prune
-#   verify_clean [VOLUME]         assert no state/lock/volume left behind
+#   verify_clean [VOLUME]         assert no state/lock/.avocado/volume left behind
 #   docker_prune [LEVEL]          scoped (default) | images | all
 #   sdk_image_exists RELEASE      docker manifest probe for avocadolinux/sdk
 #   feed_targets REL CHAN         targets published in that feed (targets.json);
@@ -100,6 +100,7 @@ verify_clean() {
   local vol="${1:-}" bad=""
   [ -e .avocado-state ] && bad="$bad .avocado-state"
   [ -e avocado.lock ]   && bad="$bad avocado.lock"
+  [ -e .avocado ]       && bad="$bad .avocado/"
   if [ -n "$vol" ] && docker volume inspect "$vol" >/dev/null 2>&1; then bad="$bad volume:$vol"; fi
   if [ -n "$bad" ]; then echo "    ⚠️  not clean:$bad" >&2; return 1; fi
   return 0
