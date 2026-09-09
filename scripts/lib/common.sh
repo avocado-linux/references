@@ -141,7 +141,9 @@ sdk_image_exists() {
 # sweep goes green on a partial matrix.
 _fetch() {
   local url="$1" out="$2" code
-  code="$(curl -s -o "$out" -w '%{http_code}' "$url" 2>/dev/null)" || code="000"
+  # Bounded so a stalled connection fails the fetch (rc 1 -> plan aborts)
+  # instead of hanging a leg until the job timeout. primary.xml.gz is a few MB.
+  code="$(curl -s --connect-timeout 10 --max-time 120 -o "$out" -w '%{http_code}' "$url" 2>/dev/null)" || code="000"
   case "$code" in
     200) return 0 ;;
     404) return 44 ;;
