@@ -23,7 +23,7 @@
 #            what we SAY we support; the report lists the feed's published
 #            target/boards per combo so the two can be compared.
 #
-# The tracked repo tree is never touched. Each cell writes ONE one-line result
+# The tracked repo tree is never touched. Each cell writes a one-line result
 # file to $LOG_DIR/cells/ and the markdown matrix report is re-rendered after
 # every cell, so a multi-hour run is watchable — and CI legs can each run one
 # cell and be aggregated by --report.
@@ -90,17 +90,23 @@ write_cell() { # target board release channel install install_t build build_t re
 row_label() { if [ "$1" = "$2" ]; then printf '%s' "$1"; else printf '%s · %s' "$1" "$2"; fi; }
 
 # --- report -----------------------------------------------------------------
-# rc 0 iff at least one cell ran and every cell file is PASS. Zero cells is a
-# failure: "nothing was checked" must never read as green.
+# rc 0 iff at least one cell ran, every planned cell has a result, and every
+# result is PASS. Zero cells or a missing result (a CI leg that died before
+# uploading) is a failure: "not checked" must never read as green.
 all_passed() {
-  local f res n=0
+  local f res t b r c n=0 rc=0
   for f in "$CELLS"/*.cell; do
     [ -f "$f" ] || continue
     n=$((n + 1))
     IFS='|' read -r _ _ _ _ _ _ _ _ _ res _ < "$f"
-    [ "$res" = "PASS" ] || return 1
+    [ "$res" = "PASS" ] || rc=1
   done
   [ "$n" -gt 0 ] || { echo "    ❌ no cells were run" >&2; return 1; }
+  while read -r t b r c; do
+    [ -n "$t" ] || continue
+    [ -f "$(cell_file "$t" "$b" "$r" "$c")" ] || { echo "    ❌ no result for planned cell $(row_label "$t" "$b") @ $r/$c" >&2; rc=1; }
+  done <<< "${PLANNED:-}"
+  return $rc
 }
 
 render_report() {
