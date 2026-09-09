@@ -90,15 +90,17 @@ write_cell() { # target board release channel install install_t build build_t re
 row_label() { if [ "$1" = "$2" ]; then printf '%s' "$1"; else printf '%s · %s' "$1" "$2"; fi; }
 
 # --- report -----------------------------------------------------------------
-# rc 0 iff every cell file is PASS.
+# rc 0 iff at least one cell ran and every cell file is PASS. Zero cells is a
+# failure: "nothing was checked" must never read as green.
 all_passed() {
-  local f res
+  local f res n=0
   for f in "$CELLS"/*.cell; do
     [ -f "$f" ] || continue
+    n=$((n + 1))
     IFS='|' read -r _ _ _ _ _ _ _ _ _ res _ < "$f"
     [ "$res" = "PASS" ] || return 1
   done
-  return 0
+  [ "$n" -gt 0 ] || { echo "    ❌ no cells were run" >&2; return 1; }
 }
 
 render_report() {
@@ -223,7 +225,13 @@ run_cell() {
   # Under the repo, not $TMPDIR: the docker daemon (avocado-vm on macOS) can
   # only bind-mount paths it shares, and /var/folders/... is not one of them.
   mkdir -p "$SCRATCH_ROOT"
-  scratch="$(mktemp -d "$SCRATCH_ROOT/${t}__${b}__$r-$c.XXXXXX")"
+  # Guard before any rm/cd/cp: an empty $scratch would turn "$scratch/.avocado"
+  # into "/.avocado".
+  if ! scratch="$(mktemp -d "$SCRATCH_ROOT/${t}__${b}__$r-$c.XXXXXX")" || [ -z "$scratch" ] || [ ! -d "$scratch" ]; then
+    echo "    ❌ could not create scratch dir under $SCRATCH_ROOT" | tee -a "$log"
+    write_cell "$t" "$b" "$r" "$c" "–" "" "–" "" "" "RESET-FAIL" "could not create scratch dir"
+    render_report; echo "    RESULT: ⚠ RESET-FAIL  (see $log)"; return 1
+  fi
   cp -a "$REPO_ROOT/dev/." "$scratch"
   rm -rf "$scratch/.avocado" "$scratch/.avocado-state" "$scratch/avocado.lock"   # never inherit a local dev/ build
   sed -e "s/^\([[:space:]]*release:\).*/\1 $r/" -e "s/^\([[:space:]]*channel:\).*/\1 $c/" \
@@ -276,7 +284,9 @@ run_cell() {
 # --- main -------------------------------------------------------------------
 case "$MODE" in
   --plan)
-    plan || { echo "preflight failed" >&2; exit 1; } ;;
+    cells="$(plan)" || { echo "preflight failed" >&2; exit 1; }
+    [ -n "$cells" ] || { echo "preflight found no runnable cells" >&2; exit 1; }
+    printf '%s\n' "$cells" ;;
   --report)
     PLANNED="$(plan 2>/dev/null)" || true   # report renders whatever cells exist
     render_report
@@ -292,6 +302,7 @@ case "$MODE" in
     echo "==========================================================="
     echo "-- preflight (sdk image + feed discovery) --"
     PLANNED="$(plan)" || { echo "preflight failed — not running a partial matrix" >&2; exit 1; }
+    [ -n "$PLANNED" ] || { echo "preflight found no runnable cells — nothing to check" >&2; exit 1; }
     render_report
     echo "   cells: $(printf '%s\n' "$PLANNED" | grep -c . || true)"
     stop=0
