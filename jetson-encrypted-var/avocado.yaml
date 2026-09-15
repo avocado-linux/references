@@ -1,0 +1,109 @@
+cli_requirement: ">=1.0.0-rc.3"
+
+default_target: "jetson-orin-nano"
+
+supported_targets:
+  - jetson-orin-nano
+  - jetson-orin-nx
+  - jetson-agx-orin
+  - jetson-agx-thor
+
+##
+## Distribution
+##
+## Encrypted /var needs cryptsetup-var, which is published on the 2026 release
+## only. A project left on 2024 fails during `avocado install` with an error
+## that names no missing package.
+##
+
+distro:
+  release: 2026
+  channel: next
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - app
+    packages:
+      avocado-runtime: "*"
+    var:
+      # Opt in to a LUKS2 /var. Unset or false leaves the plaintext default
+      # untouched.
+      encrypt: true
+      # tpm2 binds the volume key to the OP-TEE firmware TPM and fails closed
+      # when that engine is missing. The default, auto, degrades to Argon2id
+      # and still boots, which leaves a fleet software-keyed while believing it
+      # is hardware-backed.
+      hardware: tpm2
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  app:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+
+##
+## Images
+##
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password. Define a
+# profile with real users and hashed passwords before shipping anything, and
+# point rootfs/initramfs at it.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  packages:
+    avocado-sdk-toolchain: "*"
