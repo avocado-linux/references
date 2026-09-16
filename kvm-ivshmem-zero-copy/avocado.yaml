@@ -37,9 +37,10 @@ runtimes:
       - vm-alpha
       - vm-beta
     packages:
-      # Runtime packages are build-support and do NOT land in the image;
-      # avocado-bls must be a rootfs package (see below), not here.
       avocado-runtime: "*"
+      # Required here for the runtime build; removing it breaks `ext build`.
+      # Also declared under rootfs so it reaches the device (see below).
+      avocado-bls: "*"
 
 extensions:
   avocado-ext-dev:
@@ -154,9 +155,9 @@ rootfs:
   permissions: dev
   packages:
     avocado-pkg-rootfs: "*"
-    # Must be a rootfs package: bless / current-slot / demote run from the
-    # rootfs on every A/B deploy. As a runtime package it never reaches the
-    # device; as an extension a merge failure would break rollback recovery.
+    # Also a rootfs package so it reaches the device: bless / current-slot /
+    # demote run from the rootfs on every A/B deploy. (It is additionally a
+    # runtime package -- see above -- which the build needs.)
     avocado-bls: "*"
 
 initramfs:
