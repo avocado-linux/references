@@ -1,0 +1,391 @@
+cli_requirement: ">=0.41.0"
+
+# Two KVM guests on a PREEMPT_RT Qualcomm board (QCS6490), passing data between
+# themselves through one shared memory region with no copies.
+#
+# The shape this reference is really demonstrating:
+#
+#   vmm       class: platform     qemu + the launcher + the guest images
+#    ^   ^
+#    |   |    depends_on
+#   vm-alpha  vm-beta             class: application, a few hundred bytes each
+#
+# Everything heavy -- the VMM, the guest kernel, the guest initramfs -- lives
+# once in the platform extension. Each VM extension carries only its own
+# identity: which role it plays, how much memory, which CPUs. Adding a third
+# VM is one more ~20-line extension, not another copy of qemu.
+default_target: "rb3gen2"
+supported_targets:
+  - rb3gen2
+  - rubikpi3
+
+##
+## Distribution
+##
+
+distro:
+  release: 2026
+  channel: edge
+
+##
+## Kernel
+##
+## The host runs PREEMPT_RT; the guests are where anything that would perturb
+## RT latency goes. The QCS6490 2026 feed carries both kernels off one source
+## tree, told apart by CONFIG_LOCALVERSION:
+##
+##   6.18.37-<scmversion>        stock, CONFIG_PREEMPT
+##   6.18.37-rt-<scmversion>     PREEMPT_RT
+##
+## The spec below is a PREFIX glob and that is the only glob the resolver has:
+## avocado-cli parses `*` as a trailing marker only (utils/kernel_version.rs,
+## `strip_suffix('*')` -> `candidate.starts_with(prefix)`). A "contains"
+## spelling like "*rt*" does NOT select the RT kernel -- it is read as the
+## prefix `*rt`, matches nothing, and fails at resolve time with "no kernel
+## version in the repository satisfies ...". Quoting is required because a bare
+## leading `*` is a YAML alias; it does not change how the CLI reads the value.
+##
+## The base version is baked in here, so a kernel repin (6.18.37 -> 6.18.38)
+## needs this line edited -- there is no way to say "the RT one, whichever
+## version" today.
+##
+## For this pin to reach the BOOTED kernel and not just the rootfs packages,
+## the provisioning step rebuilds the UKI around $AVOCADO_PROVISION_KERNEL_IMAGE
+## at provision time. Without that the ESP ships whatever kernel the default
+## multiconfig built, /lib/modules matches nothing, and every modular driver
+## dies.
+##
+## Drop this block to get the stock kernel: with no spec the resolver takes the
+## highest by rpmvercmp, and numeric segments outrank alpha, so
+## 6.18.37-<scmversion> beats 6.18.37-rt-<scmversion>. Note a lockfile that
+## already pins RT still satisfies "no spec", so removing the block alone will
+## not move an existing pin -- give an explicit non-matching prefix instead.
+kernel:
+  version: "6.18.37-rt*"
+
+##
+## Runtimes
+##
+## One runtime, with the board-specific half in `target-<target>:` blocks.
+##
+## Only board support differs. Everything that performs the test -- vmm,
+## vm-alpha, vm-beta and the guest they share -- is identical on both boards,
+## which is the point: same guests, same ivshmem region, same measurement.
+##
+## The BSP entry is templated as `avocado-bsp-{{ avocado.target.board }}`, which
+## is what makes variant selection work. The RB3 Gen 2 is a core kit plus one of
+## several mezzanines, each its own extension, so the BOARD -- not the target --
+## is what picks board support:
+##
+##   AVOCADO_TARGET_BOARD=rb3gen2-vision  avocado install -t rb3gen2
+##
+## selects avocado-bsp-rb3gen2-vision, which depends_on the core kit and pulls
+## it in. Resolution order is AVOCADO_TARGET_BOARD / --target-board, then the
+## runtime's target_board, then default_target_board, then the resolved target.
+##
+## Each block repeats the whole extensions list on purpose: a target block is
+## deep-merged onto the base, and for anything that is not a mapping the target
+## value REPLACES the base one (utils/config.rs merge_values). A list holding
+## just the BSP would therefore discard the shared ones rather than add to them.
+runtimes:
+  rt-vms:
+    packages:
+      avocado-runtime: "*"
+
+    # RB3 Gen 2 Vision Kit (QCS6490). KVM needs no signing work here: the stock
+    # QCM6490 bootbinaries ship xbl_config_kvm.elf and avocado-qcs6490.inc
+    # selects it with QCOM_XBL_CONFIG_VARIANT = "kvm".
+    target-rb3gen2:
+      extensions:
+        - avocado-ext-dev
+        - avocado-ext-sshd-dev
+        - avocado-bsp-{{ avocado.target.board }}
+        - vmm
+        - vmm-cpus
+        - vm-alpha
+        - vm-beta
+      packages:
+        avocado-runtime: "*"
+        # Clears systemd-boot's boot-assessment counter after a good boot.
+        avocado-bls: "*"
+
+    # RUBIK Pi 3 (QCS6490). Same SoC as the Vision Kit, so the guest core layout
+    # in cpus/rubikpi3 and cpus/rb3gen2 is identical -- different board, its own
+    # bsp- extension.
+    target-rubikpi3:
+      extensions:
+        - avocado-ext-dev
+        - avocado-ext-sshd-dev
+        - avocado-bsp-{{ avocado.target.board }}
+        - vmm
+        - vmm-cpus
+        - vm-alpha
+        - vm-beta
+      packages:
+        avocado-runtime: "*"
+        avocado-bls: "*"
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  # Board support, declared by name.
+  #
+  # This stays literal even though the runtime REFERENCES it through
+  # `avocado-bsp-{{ avocado.target.board }}`: `extensions:` is a catalogue of
+  # what may be fetched, and a templated key would only ever name the one board
+  # being built.
+  #
+  # A bare `avocado ext fetch` therefore tries to fetch this for whatever board
+  # you are not building and dies on its feed. Fetch by name instead; see
+  # getting_started.md.
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  # --- the shared VM platform -------------------------------------------
+  #
+  # class: platform is what makes the two application extensions below able to
+  # depend on it without tripping the app -> app lint, and it is where the
+  # bytes live: qemu-system-aarch64, the guest kernel Image, and the guest
+  # initramfs are carried here exactly once instead of once per VM.
+  vmm:
+    types:
+      - sysext
+      - confext
+    version: "0.1.6"
+    class: platform
+    summary: "qemu-system-aarch64 + shared guest images for the ivshmem demo"
+    overlay: vmm/overlay
+    enable_services:
+      - avocado-vm-tune.service
+    on_merge:
+      - systemctl start --no-block avocado-vm-tune.service
+    packages:
+      # OTA demo: added live to show an extension update shipping a new
+      # package. Nothing in the VM launch path depends on it.
+      htop: '*'
+      # The accelerator's userspace. Feed-only on this target
+      # (packagegroup-avocado-qcom-extra), so it has to be named here.
+      qemu-system-aarch64: "*"
+      # dtc/fdtoverlay: launch-vm dumps the tree qemu generates for its own
+      # machine arguments and applies the shared-window overlay to it, rather
+      # than shipping a prebuilt DTB that would drift when qemu changes.
+      dtc: "*"
+      # The guest's cacheable-mapping driver, built by Yocto against each
+      # kernel (meta-avocado-qcom/recipes-kernel/avocado-shm). Installed
+      # here so guest-install.sh can lift the .ko into the guest initramfs;
+      # nothing on the host loads it.
+      kernel-module-avocado-shm: "*"
+      # No kernel package here on purpose. The guests boot the host's own
+      # /boot/Image-<kver>, which the ROOTFS already installs from the
+      # `kernel.version` pin above -- launch-vm resolves it with `uname -r`, so
+      # guest and host are byte-identical by construction. Listing a
+      # kernel-family package on an extension does not work anyway: the CLI
+      # routes those through its kernel machinery and the entry is dropped from
+      # the lock, leaving an empty /boot in the extension sysroot.
+      # The demo binary is the guest's PID 1; this is the cpio it lives in.
+      guest-initramfs:
+        compile: guest
+        install: guest-install.sh
+
+  # --- the board-specific core layout -----------------------------------
+  #
+  # The one part of the demo that is a property of the hardware rather than of
+  # the test. `overlay` is templated on the target, so adding a board is adding
+  # a directory under cpus/ -- no target- blocks and no second copy of vmm.
+  #
+  # It is its own extension rather than a few lines in vmm because the values
+  # are measured per board and the measurements are the interesting part; and
+  # rather than part of the BSP extension because CPU partitioning for this
+  # demo is not board support -- avocado-bsp-* is reusable across projects.
+  #
+  # class: platform so the two application extensions can depend on it. Both
+  # do, which is what makes it impossible to boot a guest without a core
+  # policy: unpinned, every number this demo reports is meaningless.
+  vmm-cpus:
+    types:
+      - sysext
+    version: "0.1.0"
+    class: platform
+    summary: "Measured CPU partitioning for the ivshmem demo, per board"
+    overlay: cpus/{{ avocado.target }}
+    depends_on:
+      - name: vmm
+        version: "^0.1.0"
+
+  # --- one extension per VM ----------------------------------------------
+  #
+  # Each is just an identity: a role, a size, a CPU set, and a unit. The
+  # depends_on edge is what guarantees vmm is merged first and lets these stay
+  # this small -- resolution is build-side, and the closure is sealed into the
+  # runtime manifest in dependency order.
+
+  vm-alpha:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    class: application
+    summary: "Guest A -- initiates the shared-memory round trip"
+    overlay: vm-alpha/overlay
+    depends_on:
+      - name: vmm
+        version: "^0.1.0"
+      - name: vmm-cpus
+        version: "^0.1.0"
+    enable_services:
+      - avocado-vm-alpha.service
+    on_merge:
+      - systemctl restart --no-block avocado-vm-alpha.service
+    on_unmerge:
+      - systemctl stop avocado-vm-alpha.service
+
+  vm-beta:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    class: application
+    summary: "Guest B -- responds to the shared-memory round trip"
+    overlay: vm-beta/overlay
+    # Unversioned edge, the plain-string spelling -- both forms are valid and
+    # this reference shows one of each.
+    depends_on:
+      - vmm
+      - vmm-cpus
+    enable_services:
+      - avocado-vm-beta.service
+    on_merge:
+      - systemctl restart --no-block avocado-vm-beta.service
+    on_unmerge:
+      - systemctl stop avocado-vm-beta.service
+
+##
+## Provisioning
+##
+## stone-provision-ufs.sh flashes over QDL with the board in Qualcomm EDL mode
+## (USB 05c6:9008). Without these args the run gets tantalisingly far and then
+## dies, because the two halves of the script see USB through different
+## interfaces:
+##
+##   `lsusb | grep 05c6:9008` enumerates from sysfs, which the container
+##   already has, so the wait loop prints "QDL device found";
+##
+##   `qdl` then calls libusb_init, which needs the usbfs nodes under
+##   /dev/bus/usb, which the container does NOT have, and fails with
+##   "qdl: failed to initialize libusb: No such file or directory".
+##
+## A directory bind mount rather than `--device`: the board re-enumerates
+## partway through flashing, and a `--device` entry pins one node that stops
+## existing when it comes back. --privileged is for the raw control transfers
+## and the kernel-driver detach qdl does.
+##
+## THESE ARGS ONLY APPLY WITH `avocado provision --profile ufs`. Nothing infers
+## the profile -- see getting_started.md for why the flag is not optional.
+provision:
+  ufs:
+    container_args:
+      - --privileged
+      - -v
+      - /dev/bus/usb:/dev/bus/usb
+
+  # The noop profile stages images and touches no hardware.
+  noop: {}
+
+##
+## Images
+##
+
+rootfs:
+  permissions: dev
+
+  # Overriding `packages:` REPLACES the default set rather than adding to it,
+  # so avocado-pkg-rootfs is restated here. Dropping it would build a rootfs
+  # with none of the base OS.
+  packages:
+    avocado-pkg-rootfs: "*"
+
+    # avocado-bls has to be ROOTFS content, not a runtime package and not an
+    # extension.
+    #
+    # Runtime `packages:` are build-support for assembling the runtime; they do
+    # not land in the image. Declaring it there means the tool is never on the
+    # device, and the first deploy carrying an OS UPDATE fails in staging with
+    # "Slot detection failed", because stone's contract calls it three times --
+    # `current-slot` for slot detection, `bless` on commit, `demote` on
+    # rollback.
+    #
+    # Not an extension either. `bless` is what clears systemd-boot's boot
+    # counter after a good boot; if it rode in a sysext and that sysext failed
+    # to merge, the counter would never clear, the entry would exhaust its tries
+    # and the loader would roll back -- a merge failure masquerading as a bad
+    # OS. The A/B boot contract must not depend on the extension machinery it is
+    # meant to recover from.
+    avocado-bls: "*"
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password so the
+# serial console and SSH are reachable while bringing the board up. Define a
+# profile with a real hashed password before this leaves a desk.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
+
+  # /dev and /sys are bound because work that touches hardware from inside the
+  # container (provisioning, deploy) needs them, and --privileged alone does
+  # not supply them.
+  #
+  # Host networking is NOT set here on purpose: `runtime deploy` serves the TUF
+  # repository from inside this container and the device has to reach it, but
+  # baking `--network=host` into the committed config would ask for it even when
+  # building against the published feed. Pass it on the command line for a local
+  # feed instead -- see getting_started.md.
+  container_args:
+    - --privileged
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    guest:
+      compile: guest-compile.sh
+      clean: guest-clean.sh
+      packages:
+        # guest-compile.sh links the demo -static: the initramfs holds one
+        # file and has no loader in it to find a shared libc with. In this
+        # distro glibc's static archive ships as libc6-staticdev, not
+        # glibc-staticdev, and it is not in the target sysroot by default.
+        libc6-staticdev: '*'
+
+  packages:
+    avocado-sdk-toolchain: "*"
+    # guest-compile.sh packs the initramfs with `cpio -o -H newc`.
+    nativesdk-cpio: "*"
+    # stone-provision-ufs.sh mcopies the rebuilt UKI into the FAT efi.bin.
+    nativesdk-mtools: "*"
+    # ukify, to rebuild the UKI around the pinned kernel. Same tool the Yocto
+    # UKI recipe uses.
+    nativesdk-systemd-boot: "*"

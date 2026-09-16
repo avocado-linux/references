@@ -1,0 +1,57 @@
+// SPDX-License-Identifier: GPL-2.0
+/*
+ * Describe the shared window to the guest kernel.
+ *
+ * QEMU is told to back a second NUMA node with the shared file, which lands at
+ * a deterministic address -- with 512M of private RAM at 0x40000000, node 1
+ * appears as memory@60000000 spanning 64 MiB. Confirmed by dumping QEMU's own
+ * generated tree (-machine virt,dumpdtb=...) rather than assumed.
+ *
+ * A cold NUMA node, not a pc-dimm: pc-dimm is memory HOTPLUG, and on arm64
+ * virt that needs the acpi-ged device --
+ *
+ *   -device pc-dimm,...: memory hotplug is not enabled: missing acpi-ged device
+ *
+ * -- while these guests boot -kernel with a device tree, where ACPI tables
+ * would never be consumed anyway.
+ *
+ * Two things this node must get right:
+ *
+ *   1. reserved-memory, so the kernel does not hand the region out as general
+ *      RAM. Both guests map the same host pages; if either allocated from it
+ *      they would corrupt each other.
+ *
+ *   2. NO `no-map` property. That is the subtle one. `no-map` tells the kernel
+ *      to leave the region out of the linear map, which forces any later
+ *      mapping to be non-cacheable -- exactly what we are trying to escape.
+ *      Omitting it keeps the region reserved BUT mapped, so the driver's
+ *      remap_pfn_range() with a default vm_page_prot yields Normal write-back
+ *      cacheable. The whole point of the exercise lives in this one absence.
+ *
+ * Targets are written as paths (&{/}) and not labels, because QEMU's generated
+ * DTB carries no __symbols__ node, so an overlay cannot resolve base labels.
+ * The &avocado_shm reference below is fine: that label is defined inside this
+ * overlay, so dtc records it in __local_fixups__ and fdtoverlay resolves it.
+ */
+/dts-v1/;
+/plugin/;
+
+&{/} {
+	/* The base tree already sets #address-cells/#size-cells = <2> at the
+	 * root, so they are not repeated here; reg below is <hi lo hi lo>.
+	 */
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		avocado_shm: avocado-shm@@SHM_BASE_UA@ {
+			reg = <0x00 @SHM_BASE@ 0x00 @SHM_SIZE@>;
+		};
+	};
+
+	avocado-shm {
+		compatible = "avocado,shm";
+		memory-region = <&avocado_shm>;
+	};
+};

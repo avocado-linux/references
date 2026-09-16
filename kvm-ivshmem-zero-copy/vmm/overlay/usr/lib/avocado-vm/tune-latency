@@ -1,0 +1,68 @@
+#!/bin/sh
+# Latency tuning for the cores the demo VMs run on.
+#
+# Everything here is measured, not folklore -- see the numbers in each comment.
+# The durable form of the first two would be kernel cmdline parameters
+# (isolcpus / nohz_full / rcu_nocbs / irqaffinity), which need a rebuild and a
+# reflash; this gets most of the way there at runtime.
+set -eu
+# Which cores these are is a property of the board, so there is no default:
+# the vmm-cpus extension supplies both through a drop-in on this unit
+# (cpus/<target>/...avocado-vm-tune.service.d/10-cpus.conf). Failing here
+# is better than silently tuning the 6490 core set on a different SoC.
+: "${VM_CPUS:?not set -- the vmm-cpus extension for this target is missing}"
+: "${HOUSE:?not set -- the vmm-cpus extension for this target is missing}"
+
+# Frequency. schedutil was observed idling cpu6 at 1.65 GHz against a 2.4 GHz
+# max; a governor ramp inside a 5 us round trip is pure jitter.
+for c in $VM_CPUS; do
+    g=/sys/devices/system/cpu/cpu$c/cpufreq/scaling_governor
+    [ -w "$g" ] && echo performance > "$g" || true
+done
+
+# Idle. state0 (WFI) costs 1 us to leave. The cluster-sleep states cost 1767 us
+# and 2380 us -- three orders of magnitude past the median round trip. Keep WFI,
+# disable the deep ones, on the VM cores only so the little cores still idle
+# properly and the board still saves power.
+for c in $VM_CPUS; do
+    for s in /sys/devices/system/cpu/cpu$c/cpuidle/state*; do
+        [ "$(basename "$s")" = state0 ] && continue
+        [ -w "$s/disable" ] && echo 1 > "$s/disable" || true
+    done
+done
+
+# Interrupts onto the housekeeping cores. Roughly 47 of 105 are kernel-managed
+# and will refuse; that is expected and is why cpu7 is a housekeeping core.
+for i in /proc/irq/[0-9]*; do
+    [ -w "$i/smp_affinity_list" ] && { echo "$HOUSE" > "$i/smp_affinity_list" 2>/dev/null || true; }
+done
+
+# RT bandwidth throttling is deliberately LEFT AT THE DEFAULT (950000/1000000).
+#
+# Turning it off does buy tail latency, measured 7 samples each within one boot
+# with the qemu threads at SCHED_FIFO 1:
+#
+#   950000 (default)  p50 5416 ns  p99 5937-7604 ns  max 14270-32239 ns
+#   -1 (off)          p50 5416 ns  p99 5833-5937 ns  max  9010-15416 ns
+#
+# and then it wedged the board. About seven minutes in, PID 1 stopped answering:
+# sshd could not complete a banner exchange, every `systemctl` hung, while ICMP
+# and a plain `sysctl` from the serial console still returned instantly -- so
+# not general starvation, specifically systemd. Restoring the throttle did not
+# recover it; the board needed a reset.
+#
+# The reason is that the cpuset partition does not cover PID 1. system.slice and
+# user.slice are held on the housekeeping cores by drop-ins, but systemd itself
+# lives in the ROOT cgroup, which always has every CPU, so it can be scheduled
+# onto a VM core -- and against an unthrottled SCHED_FIFO busy-poller a CFS task
+# there gets exactly zero. The 5% the throttle concedes each second is what
+# normally keeps that from being fatal; it is doing its job.
+#
+# The right way to have both is to keep CFS off the VM cores entirely, with
+# `[Manager] CPUAffinity=0-3,7` in systemd's own configuration (or isolcps on
+# the command line, now settable from avocado.yaml via kernel.cmdline_extra),
+# and only then drop the throttle. Untested here, and the tail gain is small
+# next to the p50/p99 win from SCHED_FIFO alone, so this ships with the
+# throttle on.
+
+echo "avocado-vm: tuned cpus [$VM_CPUS] performance/no-deep-idle, irqs -> $HOUSE"

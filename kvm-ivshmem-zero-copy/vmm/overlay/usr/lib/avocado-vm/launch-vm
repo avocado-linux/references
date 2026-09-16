@@ -1,0 +1,124 @@
+#!/bin/sh
+# launch-vm <name> -- start one demo guest.
+#
+# Shared by every VM extension; the per-VM identity is entirely in
+# /etc/avocado-vm/<name>.env. Adding a VM does not touch this file.
+set -eu
+
+name="${1:?usage: launch-vm <name>}"
+
+. /usr/lib/avocado-vm/shm.env
+. "/etc/avocado-vm/${name}.env"
+
+# The guest kernel ships in this extension, staged by guest-install.sh from the
+# pinned kernel at build time.
+#
+# It used to be read from /boot/Image-$(uname -r), which never worked on this
+# platform: the kernel is not in the rootfs image at all -- it lives in the ESP
+# inside a UKI -- so /boot is empty on the device and every VM died with
+# "no guest kernel". Same kernel the host runs, because both come from the same
+# `kernel.version` pin.
+kernel="/usr/lib/avocado-vm/guest-kernel"
+initrd="/usr/lib/avocado-vm/guest-initramfs.cpio.gz"
+kver="$(cat /usr/lib/avocado-vm/guest-kernel.version 2>/dev/null || echo unknown)"
+
+[ -r "$kernel" ] || { echo "launch-vm: no guest kernel at $kernel (is the vmm extension merged?)" >&2; exit 1; }
+[ -r "$initrd" ] || { echo "launch-vm: no guest initramfs at $initrd" >&2; exit 1; }
+[ -c /dev/kvm ] || { echo "launch-vm: /dev/kvm missing -- the board is booted under Gunyah at EL1, not with the KVM XBL config" >&2; exit 1; }
+
+# Sizes, and where qemu places the second NUMA node.
+#
+# -m size= must equal the sum of the NUMA nodes or qemu refuses to start, so
+# the total is computed rather than written twice:
+#
+#   qemu-system-aarch64: total memory for NUMA nodes (0x24000000) should
+#   equal RAM size (0x20000000)
+#
+# Node 0 is the guest's private RAM and the virt machine starts it at
+# 0x40000000, so node 1 -- the shared window -- begins immediately after it.
+# Computed for the same reason: it cannot drift from VM_MEM, and the guest
+# driver logs the region it was handed, so a mismatch shows up rather than
+# silently mapping the wrong pages.
+to_bytes() {
+    case "$1" in
+        *G|*g) echo $(( ${1%[Gg]} * 1024 * 1024 * 1024 )) ;;
+        *M|*m) echo $(( ${1%[Mm]} * 1024 * 1024 )) ;;
+        *K|*k) echo $(( ${1%[Kk]} * 1024 )) ;;
+        *)     echo "$1" ;;
+    esac
+}
+
+runtime_dir=/run/avocado-vm
+mkdir -p "$runtime_dir"
+
+# The shared window is a second COLD NUMA node backed by the shared file, not
+# an ivshmem PCI BAR and not a pc-dimm.
+#
+#   - not ivshmem: a PCI BAR cannot be mapped cacheably on arm64. resource2 is
+#     Device-nGnRE, resource2_wc is Normal-NC, so the guest's poll costs an
+#     interconnect round trip (~190 ns) per read instead of an L1 hit. On this
+#     board that was the entire difference between 7187 ns and 208 ns for the
+#     same ping-pong.
+#
+#   - not pc-dimm: that is memory HOTPLUG, and on arm64 virt it needs the
+#     acpi-ged device --
+#         -device pc-dimm,...: memory hotplug is not enabled: missing acpi-ged
+#     -- while these guests boot -kernel with a device tree, where ACPI tables
+#     would never be read anyway.
+#
+# A cold NUMA node needs no hotplug and lands at a deterministic address: with
+# node 0 holding ${VM_MEM} of private RAM from 0x40000000, node 1 appears
+# immediately after it. Verified by dumping qemu's own generated tree.
+vm_mem_bytes=$(to_bytes "${VM_MEM}")
+shm_bytes=$(to_bytes "${SHM_SIZE}")
+total_mib=$(( (vm_mem_bytes + shm_bytes) / 1024 / 1024 ))
+shm_node_addr=$(printf '0x%x' $(( 0x40000000 + vm_mem_bytes )))
+SHM_SIZE_HEX=$(printf '0x%x' "${shm_bytes}")
+
+# The guest device tree, built here rather than shipped, so it always matches
+# the qemu actually installed: dump the tree qemu generates for these exact
+# machine arguments, then apply the overlay that marks the window
+# reserved-memory and attaches the avocado,shm node the guest driver binds to.
+# A shipped DTB would silently drift the day qemu changes.
+base_dtb="${runtime_dir}/base-${VM_ROLE}.dtb"
+guest_dtb="${runtime_dir}/guest-${VM_ROLE}.dtb"
+# The overlay is compiled here from a template, with the region address
+# substituted, for the same reason the base tree is dumped rather than shipped.
+overlay_src="/usr/lib/avocado-vm/avocado-shm.dtso.in"
+overlay="${runtime_dir}/avocado-shm-${VM_ROLE}.dtbo"
+[ -r "$overlay_src" ] || { echo "launch-vm: no $overlay_src (is the vmm extension merged?)" >&2; exit 1; }
+sed -e "s/@SHM_BASE@/${shm_node_addr}/" -e "s/@SHM_SIZE@/${SHM_SIZE_HEX}/" \
+    -e "s/@SHM_BASE_UA@/${shm_node_addr#0x}/" \
+    "$overlay_src" > "${runtime_dir}/avocado-shm-${VM_ROLE}.dtso"
+dtc -@ -I dts -O dtb -o "$overlay" "${runtime_dir}/avocado-shm-${VM_ROLE}.dtso" 2>/dev/null \
+    || { echo "launch-vm: dtc failed on the generated overlay" >&2; exit 1; }
+
+qemu_mem_args="-m size=${total_mib}M \
+    -object memory-backend-ram,id=ram0,size=${VM_MEM} \
+    -object memory-backend-file,id=ivshm,mem-path=${SHM_PATH},size=${SHM_SIZE},share=on \
+    -numa node,nodeid=0,memdev=ram0 \
+    -numa node,nodeid=1,memdev=ivshm"
+
+# dumpdtb exits as soon as the tree is written. TCG and no -cpu host here on
+# purpose: this invocation never runs guest code, and asking for KVM makes it
+# carry on to a boot attempt and hang on stdio instead of exiting.
+rm -f "$base_dtb" "$guest_dtb"
+# shellcheck disable=SC2086
+qemu-system-aarch64 -machine virt,gic-version=3,dumpdtb="$base_dtb" \
+    -smp "${VM_SMP}" $qemu_mem_args \
+    -nodefaults -display none </dev/null >/dev/null 2>&1 || true
+[ -s "$base_dtb" ] || { echo "launch-vm: qemu did not produce a base device tree at $base_dtb" >&2; exit 1; }
+fdtoverlay -i "$base_dtb" -o "$guest_dtb" "$overlay" \
+    || { echo "launch-vm: fdtoverlay failed to apply $overlay" >&2; exit 1; }
+
+# -cpu host -accel kvm is the point of the exercise: no TCG fallback, so a
+# board that cannot do KVM fails here loudly instead of quietly emulating.
+# shellcheck disable=SC2086
+exec qemu-system-aarch64 \
+    -machine virt,gic-version=3 \
+    -cpu host -accel kvm \
+    -smp "${VM_SMP}" $qemu_mem_args \
+    -dtb "$guest_dtb" \
+    -nodefaults -no-reboot -display none -serial stdio \
+    -kernel "$kernel" -initrd "$initrd" \
+    -append "console=ttyAMA0 panic=-1 shm.role=${VM_ROLE} shm.iters=${VM_ITERS} shm.payload=${VM_PAYLOAD}"

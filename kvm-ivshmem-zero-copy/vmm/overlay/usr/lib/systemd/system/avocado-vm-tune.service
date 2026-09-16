@@ -1,0 +1,15 @@
+[Unit]
+Description=Latency tuning for the Avocado demo VM cores
+Documentation=file:/usr/lib/avocado-vm/tune-latency
+After=avocado-extension.service
+Before=avocado-vm-alpha.service avocado-vm-beta.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/avocado-vm/tune-latency
+# Advisory: on a board where these knobs are absent the VMs should still run.
+SuccessExitStatus=0 1
+
+[Install]
+WantedBy=multi-user.target

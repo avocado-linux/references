@@ -1,0 +1,54 @@
+[Unit]
+Description=Avocado demo VM: beta (shared-memory responder)
+Documentation=file:/usr/lib/avocado-vm/launch-vm
+# The launcher, the guest images and the shared ivshmem settings all live in
+# the vmm extension. The depends_on edge in avocado.yaml is what guarantees it
+# is merged before this unit can run; this is the runtime half of that
+# contract, and it fails closed if the merge order is ever wrong.
+ConditionPathExists=/usr/lib/avocado-vm/launch-vm
+ConditionPathExists=/usr/lib/avocado-vm/guest-initramfs.cpio.gz
+ConditionPathExists=/dev/kvm
+After=avocado-extension.service
+
+[Service]
+Type=exec
+ExecStart=/usr/lib/avocado-vm/launch-vm beta
+# Its own slice; the core it gets comes from the vmm-cpus extension, because
+# that is a property of the board and not of this demo (cpus/<target>/ carries
+# the measured set per board). avocado-vm-tune.service pins the frequency and
+# disables deep idle on whichever cores those are.
+Slice=avocado-vm.slice
+# Host-side RT priority for the qemu threads. This is the single biggest win
+# measured on this board, and the least obvious.
+#
+# The guest already runs its loop at SCHED_FIFO 80 -- but that is a priority
+# INSIDE the VM and says nothing about the host. Left at the default the vCPU
+# thread is an ordinary CFS task on a PREEMPT_RT host, where the per-CPU kernel
+# RT threads (ktimers/N, rcuc/N, ksoftirqd/N) outrank it unconditionally, so a
+# busy-polling guest is preempted mid-round-trip. Measured, A/B within one boot
+# and 7 samples each:
+#
+#   CFS (default)     p50 7239 ns   p99 7500-9739 ns   max 26-38 us    ~950 MiB/s
+#   SCHED_FIFO prio 1 p50 5416 ns   p99 5833-5937 ns   max  9-15 us   ~1313 MiB/s
+#
+# Priority 1, deliberately the lowest RT priority there is: it beats every CFS
+# task while still yielding to all of the kernel's own RT threads and to the
+# irq threads at 50. A vCPU thread that outranks those can wedge the core it is
+# on, and this one busy-polls. Raising it buys nothing measurable.
+CPUSchedulingPolicy=fifo
+CPUSchedulingPriority=1
+Restart=on-failure
+RestartSec=5s
+# Give up rather than loop forever. Without a limit a VM that cannot start --
+# a missing guest kernel, no /dev/kvm -- retries every 5s indefinitely, stays
+# in "activating" so `systemctl --failed` shows nothing, and buries the real
+# error under identical journal entries. The first run hit restart counter 60.
+StartLimitIntervalSec=120
+StartLimitBurst=3
+# qemu needs to open /dev/kvm and the ivshmem backing file; nothing else.
+DeviceAllow=/dev/kvm rw
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

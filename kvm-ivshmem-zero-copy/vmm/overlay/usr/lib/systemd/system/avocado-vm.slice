@@ -1,0 +1,11 @@
+[Unit]
+Description=Avocado demo VMs (latency-isolated cores)
+Before=slices.target
+
+[Slice]
+# No AllowedCPUs here on purpose. Which cores the VMs get is the one thing in
+# this demo that is a property of the board, not of the demo: on QCS6490 it is
+# a big/little split (Kryo 670: A78 + A55), so the guests belong on the big
+# cluster while housekeeping stays on the little one. The set is supplied by
+# the vmm-cpus extension from cpus/<target>/, and every value there is measured
+# on that board -- see the drop-in for the numbers.
