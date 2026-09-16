@@ -25,7 +25,7 @@ supported_targets:
 
 distro:
   release: 2026
-  channel: edge
+  channel: next
 
 ##
 ## Kernel
