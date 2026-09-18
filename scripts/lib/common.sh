@@ -157,9 +157,16 @@ _fetch() {
 # enumerate targets for supported_targets: '*').
 #   rc 0 + output  = published list;  rc 0 + empty = feed absent (404);
 #   rc 1           = could not determine (fetch/parse error) — abort, don't skip.
-# ponytail: 2024/edge also lists tune/arch keys (cortexa53, x86_64_v2, noarch,
-# qcm6490 SoC); they are filtered by NON_BOARD_RE. Boards never use '_'.
-NON_BOARD_RE='_|^noarch$|^qcm[0-9]+$'
+# Permanent ignore: keys that appear in targets.json but are platforms/tunes,
+# not buildable targets (there is no avocado-sdk-<name> for them; all seen in
+# 2024/edge). This explicit list is the only filter — anything new that is not
+# a real target fails loudly at install and gets added here. icam-540 is a
+# *board* of jetson-orin-nx and is still built as one via feed_boards; it is
+# only ignored as a top-level target key.
+IGNORE_TARGETS="armv8_2a armv8a armv8a_tegra armv8a_tegra234 core2_64
+cortexa53 cortexa53_crypto cortexa53_crypto_mx8mp cortexa55 cortexa55_mx91 cortexa55_mx93
+cortexa57 cortexa72 cortexa73 cortexa76 x86_64_v2 x86_64_v3
+noarch qcm6490 icam-540"
 feed_targets() {
   local tmp rc
   tmp="$(mktemp)"
@@ -172,7 +179,7 @@ feed_targets() {
   if ! jq -e 'type == "object"' "$tmp" >/dev/null 2>&1; then
     rm -f "$tmp"; echo "    ❌ targets.json for $1/$2 is not valid JSON" >&2; return 1
   fi
-  jq -r 'keys[]' "$tmp" | grep -vE "$NON_BOARD_RE" | sort
+  jq -r 'keys[]' "$tmp" | grep -vxF -f <(printf '%s\n' "$IGNORE_TARGETS" | tr ' ' '\n' | grep .) | sort
   rm -f "$tmp"
   return 0
 }
