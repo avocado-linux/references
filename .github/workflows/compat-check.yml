@@ -43,8 +43,23 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       cells: ${{ steps.plan.outputs.cells }}
+      avocado_cli_version: ${{ steps.avocado-cli-version.outputs.version }}
     steps:
       - uses: actions/checkout@v5
+      - name: Resolve avocado CLI version
+        # Resolved once here, authenticated - not once per matrix leg,
+        # unauthenticated. An unauthenticated api.github.com call shares a
+        # 60/hour budget across every GitHub Actions customer on the same
+        # runner IP, and this sweep fans out to ~90 legs; one of them loses
+        # that race sooner or later (observed: rubikpi3 @ 2024/edge, run
+        # 35488297038, "curl: (22) The requested URL returned error: 403").
+        id: avocado-cli-version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ver="$(gh api repos/avocado-linux/avocado-cli/releases/latest --jq .tag_name)"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
       - name: Discover cells
         id: plan
         run: |
@@ -92,6 +107,10 @@ jobs:
 
       - name: Install avocado CLI
         uses: avocado-linux/actions/setup-avocado-cli@v1
+        with:
+          # Resolved once in the plan job; see its comment for why every
+          # leg must not each resolve "latest" itself.
+          version: ${{ needs.plan.outputs.avocado_cli_version }}
 
       - name: Run cell
         # continue-on-error: the cell result lives in the .cell file; the
