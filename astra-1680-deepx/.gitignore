@@ -2,3 +2,9 @@
 root.json
 dx_rt*
 qt*
+
+# qt* above is for the qt-deepx-example/ and qt_deepx_example* build-scratch
+# clones dx-qt-example-compile.sh makes at the reference root, not for the
+# shipped overlay tree - unignore it or the service unit below it can never
+# be committed.
+!/files/overlay/**
