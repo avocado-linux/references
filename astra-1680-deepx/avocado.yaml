@@ -156,6 +156,8 @@ extensions:
         packagegroup-cross-canadian-avocado-{{ avocado.target }}: '*'
 
   deepx-qt-example:
+    types:
+      - sysext
     version: 2024.1.0
     release: r0
     summary: DeepX Qt5 inference example application
