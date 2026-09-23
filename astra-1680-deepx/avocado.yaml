@@ -156,6 +156,9 @@ extensions:
         packagegroup-cross-canadian-avocado-{{ avocado.target }}: '*'
 
   deepx-qt-example:
+    types:
+      - sysext
+      - confext
     version: 2024.1.0
     release: r0
     summary: DeepX Qt5 inference example application
@@ -163,6 +166,12 @@ extensions:
     license: Apache-2.0
     url: https://github.com/embear-engineering/qt-deepx-example
     vendor: Avocado Linux <info@avocadolinux.org>
+
+    # confext is what actually installs and links qt-deepx-example.service:
+    # enable_services validation only checks the confext sysroot, and confext
+    # never runs the `packages` install script below, only `overlay`. Without
+    # this, the unit is declared in enable_services but never shipped anywhere.
+    overlay: files/overlay
 
     enable_services:
       - qt-deepx-example.service

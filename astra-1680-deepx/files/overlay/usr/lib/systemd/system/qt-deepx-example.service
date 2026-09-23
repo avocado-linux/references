@@ -1,0 +1,20 @@
+[Unit]
+Description=DeepX Qt5 YOLO inference example
+After=weston.service
+PartOf=weston.service
+
+[Service]
+Type=simple
+# weston.service's ExecStart returns before the compositor socket exists,
+# so wait for it the same way rzv2n-drpai-yolo/app/overlay/.../rzv2n-drpai-yolo.service
+# does for its own weston-hosted demo.
+ExecStartPre=/bin/sh -c 'while [ ! -S /run/weston/wayland-1 ]; do sleep 0.5; done'
+Environment=XDG_RUNTIME_DIR=/run/weston
+Environment=WAYLAND_DISPLAY=wayland-1
+Environment=QT_QPA_PLATFORM=wayland
+ExecStart=/usr/local/bin/qt_deepx_example
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
