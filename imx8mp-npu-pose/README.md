@@ -70,6 +70,12 @@ to pixels (no letterbox math).
   tail has a couple of reduce/gather ops that may land on CPU — negligible, but
   if the graph fragments badly, PoseNet (pure-conv heatmaps + NNStreamer's
   built-in `mode=pose_estimation` decoder) is the drop-in fallback.
+  The 8M Plus has no build-time check for this. Where a target's SDK includes
+  Vela (`nativesdk-ethos-u-vela`, added through a `target-<name>:` override),
+  `app-compile.sh` also runs `check-op-placement.sh`, which prints Vela's CPU vs
+  NPU operator counts and the CPU ops, and fails the build when the CPU share
+  passes `MAX_CPU_PCT` (default 15). Vela 5.2.0 puts 29 of this model's 221
+  operators (13.1%) on the CPU, all of them decode and quantize boundary ops.
 - **uint8 input:** if a MoveNet export resists `inference_input_type=uint8`
   (its SavedModel input is int32), see `quantize-model.py` — wrap with a float
   input layer or fall back to PoseNet.

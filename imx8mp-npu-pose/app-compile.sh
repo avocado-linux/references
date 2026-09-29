@@ -43,6 +43,9 @@ fi
 
 "$QPY" quantize-model.py "$MODEL_DIR" "$REP_DIR" "$OUT_DIR/movenet_int8.tflite"
 
+# Reports the CPU/NPU op split where Vela is in the SDK (i.MX93); skipped elsewhere.
+./check-op-placement.sh "$OUT_DIR/movenet_int8.tflite"
+
 echo ""
 echo "Quantization complete:"
 ls -lh "$OUT_DIR/"
