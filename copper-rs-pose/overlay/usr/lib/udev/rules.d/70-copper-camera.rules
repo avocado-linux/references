@@ -1,0 +1,4 @@
+# /dev/copper-camera -> the capture node of a USB (UVC) camera. Connect only one.
+# The SoC camera blocks on some boards also make /dev/video* nodes, so
+# /dev/video0 is not always the USB camera.
+SUBSYSTEM=="video4linux", KERNEL=="video*", DRIVERS=="uvcvideo", ATTR{index}=="0", SYMLINK+="copper-camera"
