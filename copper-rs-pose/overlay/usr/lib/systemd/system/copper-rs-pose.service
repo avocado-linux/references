@@ -1,0 +1,26 @@
+[Unit]
+Description=Copper human pose (YOLOv8n-pose, Rerun server on port 9876)
+After=network.target
+Wants=network.target
+
+[Service]
+ExecStart=/usr/bin/copper-rs-pose
+# Makes /var/lib/copper-rs-pose for the .copper log.
+StateDirectory=copper-rs-pose
+WorkingDirectory=/var/lib/copper-rs-pose
+# ProtectHome= blocks ~/.cache, so keep the GStreamer plugin cache here.
+CacheDirectory=copper-rs-pose
+Environment=GST_REGISTRY=/var/cache/copper-rs-pose/gst-registry.bin
+# cu29 stops cleanly (and trims the log) on SIGINT only.
+KillSignal=SIGINT
+# Exits with an error if the camera is not there. Try again until it is.
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+SyslogIdentifier=copper-rs-pose
+
+[Install]
+WantedBy=multi-user.target

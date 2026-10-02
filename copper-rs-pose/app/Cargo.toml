@@ -1,0 +1,35 @@
+# Based on copper-rs examples/cu_human_pose (release/1.2, Apache-2.0).
+# Copper crates are pinned exactly: the SDK rust is older than the declared
+# rust-version (1.95), so the build uses --ignore-rust-version and any new
+# Copper release could break it.
+[package]
+name = "copper-rs-pose"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+publish = false
+
+[features]
+default = ["cpu"]
+cpu = []
+cuda = ["candle-core/cuda", "candle-nn/cuda"]
+
+[dependencies]
+cu29 = { version = "=1.2.1", features = ["log-level-debug", "textlogs"] }
+cu-gstreamer = { version = "=1.2.1", features = ["gst"] }
+cu-sensor-payloads = "=1.2.1"
+cu-logmon = "=1.2.1"
+# default-features = false drops clipboard support and stderr capture.
+cu-consolemon = { version = "=1.2.1", default-features = false }
+
+candle-core = "0.11.0"
+candle-nn = "0.11.0"
+rerun = { version = "0.34", default-features = false, features = ["sdk", "server"] }
+bincode = { package = "cu-bincode", version = "2.1", default-features = false, features = ["derive", "alloc"] }
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+
+[build-dependencies]
+cu29-build = "=1.2.1"
+
+[profile.release]
+strip = true
