@@ -1,6 +1,6 @@
-# <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Getting Started with Copper Human Pose
+# <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Getting Started with copper-rs Human Pose
 
-This guide shows how to build the Copper human pose reference, put it on a device, and watch the poses on your laptop. The app is one Rust binary. It reads a USB camera, finds poses with YOLOv8n-pose on the CPU, and serves the results over Rerun on port 9876.
+This guide shows how to build the copper-rs human pose reference, put it on a device, and watch the poses on your laptop. The app is one Rust binary. It reads a USB camera, finds poses with YOLOv8n-pose on the CPU, and serves the results over Rerun on port 9876.
 
 ## Prerequisites
 
@@ -107,13 +107,13 @@ Log in as `root` with an empty password. The service starts automatically at boo
    copper-rs-pose: Rerun server ready. On your laptop run: rerun --connect rerun+http://<device-ip>:9876/proxy
    ```
 
-3. Make sure that the Copper log is written:
+3. Make sure that the copper-rs log is written:
 
    ```bash
    ls -lh /var/lib/copper-rs-pose/
    ```
 
-   The directory has `human-pose_0.copper`. When a log file is full (256 MB), Copper starts `human-pose_1.copper`, then `human-pose_2.copper`, and more. Copper does not delete old files. Delete them when you need disk space.
+   The directory has `human-pose_0.copper`. When a log file is full (256 MB), copper-rs starts `human-pose_1.copper`, then `human-pose_2.copper`, and more. copper-rs does not delete old files. Delete them when you need disk space.
 
 4. Get the IP address of the device:
 
@@ -132,9 +132,9 @@ Log in as `root` with an empty password. The service starts automatically at boo
 
 Inference runs on the CPU. The frame rate is low, and it is lowest on the i.MX 8MP, which has Cortex-A53 cores.
 
-### See the Copper TUI
+### See the copper-rs TUI
 
-The Copper console monitor shows the task graph and the timing of each task. It starts only when you run the app in a terminal. The service uses the camera and port 9876, so the command stops the service first. On your laptop, run:
+The copper-rs console monitor shows the task graph and the timing of each task. It starts only when you run the app in a terminal. The service uses the camera and port 9876, so the command stops the service first. On your laptop, run:
 
 ```bash
 ssh -t root@<device-ip> 'systemctl stop copper-rs-pose; copper-rs-pose'
@@ -171,7 +171,7 @@ The udev rule `overlay/usr/lib/udev/rules.d/70-copper-camera.rules` makes `/dev/
 
 ### Add a task to the graph
 
-A Copper app is a graph of tasks. Each task is a Rust type, and `copperconfig.ron` connects the tasks. To add a task:
+A copper-rs app is a graph of tasks. Each task is a Rust type, and `copperconfig.ron` connects the tasks. To add a task:
 
 1. Write the task in `app/src/tasks/`, and export it from `app/src/tasks/mod.rs`. Use `rerun_viz.rs` as an example of a sink task.
 2. Add the task to `tasks` in `app/copperconfig.ron`.
@@ -201,7 +201,7 @@ The build runs `copper-compile.sh` in the SDK container. The script does these s
 4. Writes `app/.cargo/config.toml` with the sysroot flags.
 5. Runs `cargo build --release --locked --ignore-rust-version`.
 
-Copper declares Rust 1.95, and the SDK has Rust 1.94.1. The code builds with 1.94.1, so the script uses `--ignore-rust-version`. `Cargo.toml` pins the Copper crates to `=1.2.1`, and `Cargo.lock` pins all other crates.
+copper-rs declares Rust 1.95, and the SDK has Rust 1.94.1. The code builds with 1.94.1, so the script uses `--ignore-rust-version`. `Cargo.toml` pins the copper-rs crates to `=1.2.1`, and `Cargo.lock` pins all other crates.
 
 At build time, `build.rs` and the `#[copper_runtime]` macro read `app/copperconfig.ron` and make the task graph into Rust code. Thus a change to `copperconfig.ron` needs a new build.
 
