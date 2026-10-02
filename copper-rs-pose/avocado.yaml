@@ -1,0 +1,117 @@
+cli_requirement: ">=0.41.0"
+
+default_target: "raspberrypi5"
+
+supported_targets:
+  - raspberrypi5
+  - imx8mp-evk
+  - jetson-orin-nano
+
+distro:
+  release: 2026
+  channel: next
+
+runtimes:
+  dev:
+    packages:
+      avocado-runtime: '*'
+    extensions:
+      - copper-rs-pose
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target }}
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: '*'
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: '*'
+
+  avocado-bsp-{{ avocado.target }}:
+    source:
+      type: package
+      version: '*'
+
+  copper-rs-pose:
+    version: 0.1.0
+
+    overlay: overlay
+
+    enable_services:
+      - copper-rs-pose.service
+
+    on_merge:
+      # Load the /dev/copper-camera rule from the overlay.
+      - udevadm control --reload
+      - udevadm trigger --subsystem-match=video4linux --action=add
+      - systemctl restart --no-block copper-rs-pose.service
+
+    on_unmerge:
+      - systemctl stop copper-rs-pose.service
+
+    packages:
+      copper-rs-pose-app:
+        compile: copper-rs-pose-app
+        install: copper-install.sh
+
+      # GStreamer: v4l2src -> videoconvert -> videoscale -> appsink
+      gstreamer1.0: '*'
+      gstreamer1.0-plugins-base-videoconvertscale: '*'
+      gstreamer1.0-plugins-base-app: '*'
+      gstreamer1.0-plugins-good-video4linux2: '*'
+      kernel-module-uvcvideo: '*'
+      v4l-utils: '*'
+
+    sdk:
+      packages:
+        nativesdk-binutils: '*'
+        nativesdk-cargo: '*'
+        nativesdk-gcc: '*'
+        nativesdk-glibc-dev: '*'
+        nativesdk-libgcc-dev: '*'
+        nativesdk-rust: '*'
+        nativesdk-pkgconfig: '*'
+        packagegroup-rust-cross-canadian-avocado-{{ avocado.target }}: '*'
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password and is
+# referenced by rootfs/initramfs above. Define additional profiles with real
+# users, groups, and hashed passwords, then point rootfs/initramfs at them via
+# `permissions: <name>`.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
+
+  container_args:
+    - --network=host
+    - --privileged
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  compile:
+    copper-rs-pose-app:
+      compile: copper-compile.sh
+      packages:
+        libstd-rs: '*'
+        libstd-rs-dev: '*'
+        # Headers and .pc files for gstreamer-sys / gstreamer-app-sys
+        gstreamer1.0-dev: '*'
+        gstreamer1.0-plugins-base-dev: '*'
+
+  packages:
+    avocado-sdk-toolchain: '*'
