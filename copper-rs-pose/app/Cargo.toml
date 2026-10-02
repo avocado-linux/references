@@ -1,7 +1,7 @@
 # Based on copper-rs examples/cu_human_pose (release/1.2, Apache-2.0).
-# Copper crates are pinned exactly: the SDK rust is older than the declared
+# copper-rs crates are pinned exactly: the SDK rust is older than the declared
 # rust-version (1.95), so the build uses --ignore-rust-version and any new
-# Copper release could break it.
+# copper-rs release could break it.
 [package]
 name = "copper-rs-pose"
 version = "0.1.0"

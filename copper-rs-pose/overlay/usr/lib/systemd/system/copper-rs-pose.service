@@ -1,5 +1,5 @@
 [Unit]
-Description=Copper human pose (YOLOv8n-pose, Rerun server on port 9876)
+Description=copper-rs human pose (YOLOv8n-pose, Rerun server on port 9876)
 After=network.target
 Wants=network.target
 

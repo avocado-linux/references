@@ -60,6 +60,6 @@ EOF
 # gstreamer-sys finds the target gstreamer through pkg-config in the SDK sysroot.
 export PKG_CONFIG_ALLOW_CROSS=1
 
-# Copper declares rust-version 1.95. The SDK rust is older, and the code builds
+# copper-rs declares rust-version 1.95. The SDK rust is older, and the code builds
 # with it. The exact pins in Cargo.toml keep this bypass stable.
 cargo build --release --locked --ignore-rust-version --target "$RUST_TARGET"
