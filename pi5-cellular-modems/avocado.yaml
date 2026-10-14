@@ -1,0 +1,128 @@
+cli_requirement: ">=0.41.0"
+
+default_target: "raspberrypi5"
+
+supported_targets:
+  - raspberrypi5
+
+##
+## Distribution
+##
+
+distro:
+  release: 2026
+  channel: next
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - cellular-modems
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  # USB cellular modems on the Pi 5. The stock image builds these drivers but
+  # leaves them out of the rootfs; this extension brings in the ones a modem
+  # needs, whichever USB mode it presents (QMI, MBIM, ECM/NCM, RNDIS, or a
+  # serial AT port), plus a networkd file for the link a modem creates.
+  cellular-modems:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "USB cellular modem drivers and a networkd profile for usb0 and wwan0"
+    overlay: overlay
+    enable_services:
+      - cellular-modems-networkd.service
+    packages:
+      # Network-style modems: ECM, NCM, MBIM, QMI, RNDIS
+      kernel-module-usbnet: "*"
+      kernel-module-cdc-ether: "*"
+      kernel-module-cdc-ncm: "*"
+      kernel-module-cdc-mbim: "*"
+      kernel-module-cdc-wdm: "*"
+      kernel-module-qmi-wwan: "*"
+      kernel-module-rndis-host: "*"
+      # Serial ports for AT commands and PPP-style modems
+      kernel-module-cdc-acm: "*"
+      kernel-module-option: "*"
+      kernel-module-usb-wwan: "*"
+      kernel-module-usbserial: "*"
+      kernel-module-qcserial: "*"
+      kernel-module-sierra: "*"
+      kernel-module-sierra-net: "*"
+      kernel-module-ppp-generic: "*"
+      kernel-module-ppp-async: "*"
+      kernel-module-ppp-deflate: "*"
+      kernel-module-slhc: "*"
+      kernel-module-tun: "*"
+      # Tools for working on the unit
+      usbutils: "*"
+      ethtool: "*"
+      iproute2: "*"
+
+##
+## Images
+##
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password and is
+# referenced by rootfs/initramfs above. Define additional profiles with real
+# users, groups, and hashed passwords, then point rootfs/initramfs at them via
+# `permissions: <name>`.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  packages:
+    avocado-sdk-toolchain: "*"

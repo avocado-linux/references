@@ -1,0 +1,14 @@
+# The link a USB modem creates: usb0 for an ECM/NCM/RNDIS modem, wwan0 for a
+# QMI or MBIM one. The number sorts this file ahead of the stock 80-wired.network,
+# which matches every Ethernet-type link and would otherwise give a modem the
+# same low route metric as Ethernet.
+[Match]
+Name=usb0 wwan0
+
+[Network]
+DHCP=ipv4
+
+[DHCPv4]
+# Behind Ethernet (10) and Wi-Fi (200), so the modem carries traffic only when
+# the others have no route.
+RouteMetric=300
