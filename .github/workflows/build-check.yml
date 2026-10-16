@@ -8,6 +8,14 @@ name: Build Check
 # A workflow_dispatch with no `refs` input, or the weekly schedule, sweeps
 # all references.
 #
+# Each reference builds for its default target (default_target, else the
+# first concrete supported_targets entry, else qemuarm64). A workflow_dispatch
+# with a `targets` input builds every listed target for every selected
+# reference instead, and `targets: all` builds each reference for every
+# target in its own supported_targets list. Pairs the reference does not list
+# in supported_targets are skipped with a notice. PRs and the schedule always
+# use the default target.
+#
 # There is deliberately NO skip-list: a reference that cannot install or
 # build goes red, every run, until the underlying problem (usually a
 # missing package in the target's feed) is fixed. Red is the signal.
@@ -24,6 +32,10 @@ on:
     inputs:
       refs:
         description: Space-separated reference dirs to build (empty = all)
+        type: string
+        default: ""
+      targets:
+        description: Space-separated targets, or "all" for each reference's supported_targets (empty = default target)
         type: string
         default: ""
   schedule:
@@ -44,7 +56,7 @@ jobs:
     name: Detect references to build
     runs-on: ubuntu-latest
     outputs:
-      refs: ${{ steps.list.outputs.refs }}
+      pairs: ${{ steps.list.outputs.pairs }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -57,6 +69,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           BASE_REF: ${{ github.base_ref }}
           INPUT_REFS: ${{ inputs.refs }}
+          INPUT_TARGETS: ${{ inputs.targets }}
         run: |
           set -euo pipefail
           list_all() {
@@ -81,20 +94,48 @@ jobs:
               out="$(list_all)"
               ;;
           esac
-          json="$(printf '%s\n' $out | jq -R . | jq -sc 'map(select(length > 0))')"
-          echo "refs to build: $json"
-          echo "refs=$json" >> "$GITHUB_OUTPUT"
+          REFS="$out" python3 - <<'EOF'
+          import json, os, yaml
+
+          requested = os.environ.get("INPUT_TARGETS", "").split()
+          pairs = []
+          for ref in os.environ["REFS"].split():
+              y = yaml.safe_load(open(f"{ref}/avocado.yaml")) or {}
+              st = y.get("supported_targets")
+              targets = requested
+              if requested == ["all"]:
+                  # "*" or a missing list cannot be expanded; use the default target.
+                  targets = [s for s in st if s and s != "*"] if isinstance(st, list) else []
+                  if not targets:
+                      print(f"::notice title=all targets::{ref} has no explicit supported_targets, using its default target")
+              if not targets:
+                  t = y.get("default_target")
+                  if not t or t == "*":
+                      t = next((s for s in st if s and s != "*"), None) if isinstance(st, list) else None
+                  pairs.append({"ref": ref, "target": t or "qemuarm64"})
+                  continue
+              for t in targets:
+                  if isinstance(st, list) and "*" not in st and t not in st:
+                      print(f"::notice title=skipped::{ref} does not support {t}")
+                      continue
+                  pairs.append({"ref": ref, "target": t})
+
+          out = json.dumps(pairs)
+          print(f"pairs to build: {out}")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"pairs={out}\n")
+          EOF
 
   build:
-    name: ${{ matrix.ref }}
+    name: ${{ matrix.ref }} (${{ matrix.target }})
     needs: detect
-    if: needs.detect.outputs.refs != '[]'
+    if: needs.detect.outputs.pairs != '[]'
     strategy:
       # One failing reference must not stop the others — every changed
       # reference reports its own result.
       fail-fast: false
       matrix:
-        ref: ${{ fromJSON(needs.detect.outputs.refs) }}
+        include: ${{ fromJSON(needs.detect.outputs.pairs) }}
     runs-on: ubuntu-latest
     # The heavy references (nvidia-*, jetson-trt, python-whisper) pull
     # multi-GB feeds and docker images; give them room but cap a wedged
@@ -122,34 +163,11 @@ jobs:
       - name: Install avocado CLI
         uses: avocado-linux/actions/setup-avocado-cli@v1
 
-      - name: Resolve target
-        id: target
-        working-directory: ${{ matrix.ref }}
-        # Same resolution rule as scripts/build-check-references.sh:
-        # default_target if concrete, else the first concrete
-        # supported_targets entry, else qemuarm64.
-        run: |
-          target="$(python3 - <<'EOF'
-          import yaml
-          y = yaml.safe_load(open("avocado.yaml")) or {}
-          t = y.get("default_target")
-          if not t or t == "*":
-              st = y.get("supported_targets")
-              if isinstance(st, list):
-                  t = next((s for s in st if s and s != "*"), None)
-              else:
-                  t = None
-          print(t or "qemuarm64")
-          EOF
-          )"
-          echo "target: $target"
-          echo "target=$target" >> "$GITHUB_OUTPUT"
-
       - name: avocado install (one retry)
         id: install
         working-directory: ${{ matrix.ref }}
         env:
-          TARGET: ${{ steps.target.outputs.target }}
+          TARGET: ${{ matrix.target }}
         run: |
           set -uo pipefail
           avocado clean -f >/dev/null 2>&1 || true
@@ -165,7 +183,7 @@ jobs:
         id: build
         working-directory: ${{ matrix.ref }}
         env:
-          TARGET: ${{ steps.target.outputs.target }}
+          TARGET: ${{ matrix.target }}
         # No retry: a build failure after a clean install is a real result.
         run: avocado build --no-tui --target "$TARGET"
 
@@ -174,7 +192,7 @@ jobs:
         if: always()
         env:
           REF: ${{ matrix.ref }}
-          TARGET: ${{ steps.target.outputs.target }}
+          TARGET: ${{ matrix.target }}
           INSTALL_OUTCOME: ${{ steps.install.outcome }}
           BUILD_OUTCOME: ${{ steps.build.outcome }}
         run: |
@@ -189,7 +207,7 @@ jobs:
           else result="FAIL @ build"; fi
           row="| ${REF} | ${TARGET} | ${install_cell} | ${build_cell} | ${result} |"
           mkdir -p results
-          printf '%s\n' "$row" > "results/${REF}.row"
+          printf '%s\n' "$row" > "results/${REF}--${TARGET}.row"
           {
             echo "| Reference | Target | install | build | Result |"
             echo "|-----------|--------|:-------:|:-----:|--------|"
@@ -200,7 +218,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: result-${{ matrix.ref }}
+          name: result-${{ matrix.ref }}--${{ matrix.target }}
           path: results/
           retention-days: 14
 
@@ -222,7 +240,7 @@ jobs:
   report:
     name: Aggregate report
     needs: [detect, build]
-    if: always() && needs.detect.outputs.refs != '[]'
+    if: always() && needs.detect.outputs.pairs != '[]'
     runs-on: ubuntu-latest
     steps:
       - name: Download result rows
