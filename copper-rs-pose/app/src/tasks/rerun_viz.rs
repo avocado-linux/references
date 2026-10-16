@@ -129,20 +129,8 @@ impl RerunPoseViz {
     }
 
     fn log_poses(&self, poses: &CuPoses) -> CuResult<()> {
-        if poses.is_empty() {
-            // Clear previous visualizations when no poses detected
-            let _ = self
-                .rec
-                .log(CAMERA_ENTITY, &Points2D::new(Vec::<Vec2D>::new()));
-            let _ = self
-                .rec
-                .log(CAMERA_ENTITY, &LineStrips2D::new(Vec::<Vec<Vec2D>>::new()));
-            let _ = self.rec.log(
-                CAMERA_ENTITY,
-                &Boxes2D::from_centers_and_sizes(Vec::<Vec2D>::new(), Vec::<Vec2D>::new()),
-            );
-            return Ok(());
-        }
+        // Log all three collections every frame, also when they are empty. An
+        // empty collection clears the overlay from the frame before.
 
         // Collect all keypoints for visualization
         let mut all_keypoints: Vec<Vec2D> = Vec::new();
@@ -192,40 +180,34 @@ impl RerunPoseViz {
         }
 
         // Log keypoints
-        if !all_keypoints.is_empty() {
-            let radii = vec![rerun::Radius::new_scene_units(5.0); all_keypoints.len()];
-            self.rec
-                .log(
-                    CAMERA_ENTITY,
-                    &Points2D::new(all_keypoints)
-                        .with_colors(keypoint_colors)
-                        .with_radii(radii),
-                )
-                .map_err(|e| CuError::new_with_cause("Failed to log keypoints", e))?;
-        }
+        let radii = vec![rerun::Radius::new_scene_units(5.0); all_keypoints.len()];
+        self.rec
+            .log(
+                CAMERA_ENTITY,
+                &Points2D::new(all_keypoints)
+                    .with_colors(keypoint_colors)
+                    .with_radii(radii),
+            )
+            .map_err(|e| CuError::new_with_cause("Failed to log keypoints", e))?;
 
         // Log skeleton
-        if !skeleton_strips.is_empty() {
-            let skeleton_colors = vec![rerun::Color::from_rgb(255, 255, 0); skeleton_strips.len()];
-            self.rec
-                .log(
-                    CAMERA_ENTITY,
-                    &LineStrips2D::new(skeleton_strips).with_colors(skeleton_colors),
-                )
-                .map_err(|e| CuError::new_with_cause("Failed to log skeleton", e))?;
-        }
+        let skeleton_colors = vec![rerun::Color::from_rgb(255, 255, 0); skeleton_strips.len()];
+        self.rec
+            .log(
+                CAMERA_ENTITY,
+                &LineStrips2D::new(skeleton_strips).with_colors(skeleton_colors),
+            )
+            .map_err(|e| CuError::new_with_cause("Failed to log skeleton", e))?;
 
         // Log bounding boxes
-        if !box_centers.is_empty() {
-            let box_colors = vec![rerun::Color::from_rgb(0, 255, 0); box_centers.len()];
-            self.rec
-                .log(
-                    CAMERA_ENTITY,
-                    &Boxes2D::from_centers_and_sizes(box_centers, box_sizes)
-                        .with_colors(box_colors),
-                )
-                .map_err(|e| CuError::new_with_cause("Failed to log boxes", e))?;
-        }
+        let box_colors = vec![rerun::Color::from_rgb(0, 255, 0); box_centers.len()];
+        self.rec
+            .log(
+                CAMERA_ENTITY,
+                &Boxes2D::from_centers_and_sizes(box_centers, box_sizes)
+                    .with_colors(box_colors),
+            )
+            .map_err(|e| CuError::new_with_cause("Failed to log boxes", e))?;
 
         Ok(())
     }

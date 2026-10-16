@@ -197,20 +197,25 @@ impl Sppf {
 impl Module for Sppf {
     fn forward(&self, xs: &Tensor) -> Result<Tensor> {
         let xs = self.cv1.forward(xs)?;
-        let xs2 = xs
-            .pad_with_zeros(2, self.k / 2, self.k / 2)?
-            .pad_with_zeros(3, self.k / 2, self.k / 2)?
-            .max_pool2d_with_stride(self.k, 1)?;
-        let xs3 = xs2
-            .pad_with_zeros(2, self.k / 2, self.k / 2)?
-            .pad_with_zeros(3, self.k / 2, self.k / 2)?
-            .max_pool2d_with_stride(self.k, 1)?;
-        let xs4 = xs3
-            .pad_with_zeros(2, self.k / 2, self.k / 2)?
-            .pad_with_zeros(3, self.k / 2, self.k / 2)?
-            .max_pool2d_with_stride(self.k, 1)?;
+        let xs2 = pad_neg_inf(&xs, self.k / 2)?.max_pool2d_with_stride(self.k, 1)?;
+        let xs3 = pad_neg_inf(&xs2, self.k / 2)?.max_pool2d_with_stride(self.k, 1)?;
+        let xs4 = pad_neg_inf(&xs3, self.k / 2)?.max_pool2d_with_stride(self.k, 1)?;
         self.cv2.forward(&Tensor::cat(&[&xs, &xs2, &xs3, &xs4], 1)?)
     }
+}
+
+/// Pads the height and width of an NCHW tensor with -inf, like the padding of
+/// PyTorch MaxPool2d. Zero padding changes the result at the borders, because
+/// the SiLU output before the pool can be negative.
+fn pad_neg_inf(xs: &Tensor, pad: usize) -> Result<Tensor> {
+    let (b, c, h, w) = xs.dims4()?;
+    let fill = |h: usize, w: usize| {
+        Tensor::full(f32::NEG_INFINITY, (b, c, h, w), xs.device())?.to_dtype(xs.dtype())
+    };
+    let rows = fill(pad, w)?;
+    let xs = Tensor::cat(&[&rows, xs, &rows], 2)?;
+    let cols = fill(h + 2 * pad, pad)?;
+    Tensor::cat(&[&cols, &xs, &cols], 3)
 }
 
 #[derive(Debug)]
