@@ -97,10 +97,19 @@ jobs:
           REFS="$out" python3 - <<'EOF'
           import json, os, yaml
 
-          requested = os.environ.get("INPUT_TARGETS", "").split()
+          # dict.fromkeys drops repeats, which would collide on artifact names.
+          requested = list(dict.fromkeys(os.environ.get("INPUT_TARGETS", "").split()))
           pairs = []
-          for ref in os.environ["REFS"].split():
-              y = yaml.safe_load(open(f"{ref}/avocado.yaml")) or {}
+          for ref in dict.fromkeys(os.environ["REFS"].split()):
+              try:
+                  y = yaml.safe_load(open(f"{ref}/avocado.yaml")) or {}
+              except Exception as e:
+                  # Keep the ref in the matrix so it fails in its own build job
+                  # and does not block the other refs.
+                  print(f"::warning title=unreadable config::{ref}: {e}")
+                  explicit = [t for t in requested if t != "all"]
+                  pairs += [{"ref": ref, "target": t} for t in explicit or ["qemuarm64"]]
+                  continue
               st = y.get("supported_targets")
               targets = requested
               if requested == ["all"]:
