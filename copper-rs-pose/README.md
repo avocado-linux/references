@@ -1,9 +1,17 @@
 ---
 language: Rust
 targets:
-  - raspberrypi5
   - imx8mp-evk
+  - imx91-frdm
+  - imx93-evk
+  - imx93-frdm
+  - jetson-agx-orin
+  - jetson-agx-thor
   - jetson-orin-nano
+  - raspberrypi4
+  - raspberrypi5
+  - rb3gen2
+  - rubikpi3
 topics:
   - robotics
   - vision

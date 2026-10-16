@@ -6,7 +6,7 @@ This guide shows how to build the copper-rs human pose reference, put it on a de
 
 - macOS or Linux. On macOS, the Avocado CLI starts its own helper VM (avocado-vm) for the SDK. On Linux, Docker must be installed and running.
 - The latest version of the [Avocado CLI](https://docs.peridio.com/guides/avocado-cli/overview)
-- One of the supported devices: `raspberrypi5`, `imx8mp-evk` or `jetson-orin-nano`
+- One of the supported devices. See `supported_targets` in `avocado.yaml` for the list.
 - The media and cables to provision your device (SD card, USB cable, serial console adapter). See the [Support Matrix](https://docs.peridio.com/hardware/support-matrix).
 - A USB (UVC) webcam. Most webcams that give YUYV video work.
 - A network connection between the device and your laptop. Ethernet is better than Wi-Fi, because the device sends raw camera frames to the viewer.
@@ -55,9 +55,9 @@ The first build compiles about 700 Rust crates and takes some minutes. Later bui
 
 ## Deploy
 
-### Raspberry Pi 5 and NXP i.MX 8MP EVK
+### Raspberry Pi and NXP boards
 
-Insert your SD card and provision:
+For `raspberrypi4`, `raspberrypi5`, `imx8mp-evk`, `imx91-frdm`, `imx93-evk` and `imx93-frdm`, insert your SD card and provision:
 
 ```bash
 avocado provision -r dev --profile sd
@@ -65,13 +65,25 @@ avocado provision -r dev --profile sd
 
 Put the SD card into the device, connect the webcam and the network, and apply power.
 
-### NVIDIA Jetson Orin Nano
+### NVIDIA Jetson
+
+For `jetson-orin-nano`, `jetson-agx-orin` and `jetson-agx-thor`, put the device in recovery mode, connect it to your computer with USB, and provision:
 
 ```bash
 avocado provision -r dev --profile tegraflash
 ```
 
 Obey the USB disconnect and reconnect prompts during the flash process. Then connect the webcam and the network.
+
+### Qualcomm boards
+
+For `rb3gen2` and `rubikpi3`, put the board in EDL mode and connect it to your computer with USB. Then provision to the onboard UFS storage:
+
+```bash
+avocado provision -r dev --profile ufs
+```
+
+Connect the webcam and the network.
 
 ### Update a device that you provisioned before
 
@@ -130,7 +142,7 @@ Log in as `root` with an empty password. The service starts automatically at boo
 
    `rerun --version` must show 0.34.1. The viewer shows the `camera/image` view with the live camera image. When a person is in the camera image, the viewer shows a box, the keypoints and the skeleton lines on the person.
 
-Inference runs on the CPU. The frame rate is low, and it is lowest on the i.MX 8MP, which has Cortex-A53 cores.
+Inference runs on the CPU, so the frame rate depends on the board. It is highest on the Jetson boards and lowest on the i.MX 91 and i.MX 93, which have small Cortex-A55 cores.
 
 ### See the copper-rs TUI
 
@@ -164,6 +176,8 @@ The width and height are in three places in `app/copperconfig.ron`. The three va
 - The `pipeline` string of the `camera` task
 - The `caps` string of the `camera` task
 - The `width` and `height` of the `gst_to_image` task
+
+Use a width and a height that are multiples of 16, for example 640x352 or 1280x720. With other values, GStreamer can add padding bytes to each row. The app reads the frame as rows with no padding, so the image and the poses are not correct.
 
 ### Use a different camera
 
