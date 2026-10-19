@@ -25,12 +25,20 @@ trap 'rc=$?; rm -f "$IN"; echo "provision-wifi: exit $rc (input file removed)"' 
 # any character is safe.
 conf=$(python3 -I - "$IN" <<'PY'
 import hashlib, sys
+# Text mode turns \r\n into \n, so a file saved with Windows line endings gives the
+# same SSID and key. Not splitlines(): it also splits on form feed, U+2028 and
+# other characters a passphrase may legitimately contain.
 lines = open(sys.argv[1], encoding="utf-8").read().split("\n")
 if len(lines) < 2 or not lines[0] or not lines[1]:
     sys.exit("input needs two non-empty lines: SSID, then passphrase")
 ssid, pw = lines[0].encode(), lines[1].encode()
+if len(ssid) > 32:
+    sys.exit("SSID must be 32 bytes or less")
 if not 8 <= len(pw) <= 63:
     sys.exit("passphrase must be 8 to 63 characters")
+# The exact SSID the key is derived for, so a stray space shows up here and
+# not as a handshake that fails later with no explanation.
+print("SSID: " + repr(lines[0]), file=sys.stderr)
 psk = hashlib.pbkdf2_hmac("sha1", pw, ssid, 4096, 32).hex()
 print("ctrl_interface=DIR=/run/wpa_supplicant GROUP=0")
 print("update_config=0")

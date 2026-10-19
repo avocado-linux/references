@@ -48,9 +48,13 @@ extensions:
       type: package
       version: "*"
 
-  # The onboard radio, wpa_supplicant, and a unit that reads its credentials
-  # from /var. The credentials are never part of the extension: the unit stays
-  # inactive until provisioning writes the config (see getting_started.md).
+  # wpa_supplicant and a unit that reads its credentials from /var. The
+  # credentials are never part of the extension: the unit stays inactive until
+  # provisioning writes the config (see getting_started.md). The radio's
+  # drivers, firmware and regulatory database are not repeated here: the
+  # avocado-bsp extension above already carries kernel-module-brcmfmac,
+  # -brcmfmac-wcc, -brcmutil, -cfg80211 and -rfkill, the rpidistro firmware and
+  # wireless-regdb-static, and loads them with a udev trigger when it merges.
   wifi-station:
     types:
       - sysext
@@ -60,17 +64,17 @@ extensions:
     overlay: overlay
     enable_services:
       - wifi-station.service
+    # avocadoctl runs these after every merge, so a changed extension takes
+    # effect on a deploy without a reboot. The networkd reload is in the unit
+    # (ExecStartPost): at a cold boot the merge hook runs before D-Bus is up and
+    # `networkctl reload` fails there.
+    on_merge:
+      - systemctl restart --no-block wifi-station.service
+    on_unmerge:
+      - systemctl stop --no-block wifi-station.service
     packages:
-      kernel-module-brcmfmac: "*"
-      kernel-module-brcmfmac-wcc: "*"
-      kernel-module-brcmutil: "*"
-      kernel-module-cfg80211: "*"
-      kernel-module-rfkill: "*"
-      linux-firmware-rpidistro-bcm43455: "*"
-      linux-firmware-rpidistro-bcm43456: "*"
       wpa-supplicant: "*"
       iw: "*"
-      wireless-regdb-static: "*"
 
 ##
 ## Images

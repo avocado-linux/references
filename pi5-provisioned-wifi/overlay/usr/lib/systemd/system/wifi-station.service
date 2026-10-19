@@ -16,10 +16,9 @@ ExecStart=/usr/sbin/wpa_supplicant -c/var/lib/wifi-station/wpa_supplicant.conf -
 Restart=on-failure
 RestartSec=5
 # networkd starts before the extension merge, so on a cold boot it has not seen
-# this extension's 25-wlan0.network and leaves wlan0 unmanaged. This unit exists
-# only after the merge, which makes it the first point that can ask networkd to
-# re-read its configuration. The leading "-" keeps a reload failure from
-# failing the Wi-Fi unit.
+# this extension's 25-wlan0.network and leaves wlan0 unmanaged. The merge hook
+# runs before D-Bus is up, so a reload there fails; this unit starts later, once
+# the bus answers. The leading "-" keeps a reload failure from failing the unit.
 ExecStartPost=-/usr/bin/networkctl reload
 
 [Install]

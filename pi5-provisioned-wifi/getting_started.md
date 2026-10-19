@@ -30,7 +30,7 @@ avocado install -f
 avocado build
 ```
 
-This builds the `wifi-station` extension: the `brcmfmac` drivers, the Broadcom firmware, `wpa_supplicant`, `iw`, a `wifi-station.service` unit that reads `/var/lib/wifi-station/wpa_supplicant.conf`, and a networkd file that runs DHCP on `wlan0` at route metric 200. The extension carries no credentials.
+This builds the `wifi-station` extension: `wpa_supplicant`, `iw`, a `wifi-station.service` unit that reads `/var/lib/wifi-station/wpa_supplicant.conf`, and a networkd file that runs DHCP on `wlan0` at route metric 200. The extension carries no credentials. The `brcmfmac` drivers, the Broadcom firmware and the regulatory database come from the `avocado-bsp` extension in the same runtime, which loads them with a udev trigger when it merges.
 
 ## Deploy
 
@@ -76,7 +76,7 @@ ssh root@<device-ip> 'wpa_cli -i wlan0 status | grep -E "^(wpa_state|ssid|ip_add
 
 Expect `wpa_state=COMPLETED`, `State: routable (configured)`, a DHCP address on `wlan0`, and replies from `1.1.1.1`. `eth0` keeps the lower route metric, so SSH over Ethernet is unaffected.
 
-Reboot the device and run the same check without touching it. `wifi-station.service` starts on its own, and its `ExecStartPost=networkctl reload` makes networkd manage `wlan0` even though networkd started before the extension was merged.
+Reboot the device and run the same check without touching it. `wifi-station.service` starts on its own, and its `ExecStartPost` (`networkctl reload`) makes networkd manage `wlan0` even though networkd started before the extension was merged. The extension's `on_merge` hook restarts the unit after every merge, so a changed `25-wlan0.network` also takes effect on `avocado deploy` without a reboot. The reload lives in the unit because the merge hook runs before D-Bus is up on a cold boot, where `networkctl reload` fails with "Failed to connect to system bus".
 
 ### Changing the credentials
 
