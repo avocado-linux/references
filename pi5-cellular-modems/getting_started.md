@@ -53,7 +53,7 @@ Every module prints `ok`. A modem loads the ones it needs by itself when you plu
 
 ### 2. The network profile is active
 
-networkd can start before the extension is merged, so the extension asks it to re-read its configuration twice: a unit that runs on every boot, and a merge hook that runs on every `avocado deploy`. Check that a link named `usb0` gets the cellular profile, with no manual reload and no reboot after the deploy:
+networkd can start before the extension is merged, so the extension asks it to re-read its configuration twice: a unit that runs on every boot, and a merge hook that runs on every merge, including `avocadoctl refresh` on a running device. Check that a link named `usb0` gets the cellular profile, with no manual reload:
 
 ```bash
 ssh root@<device-ip> 'modprobe tun; ip tuntap add dev usb0 mode tap; ip link set usb0 up; sleep 3; networkctl status usb0 --no-pager | grep "Network File"; ip link del usb0'
