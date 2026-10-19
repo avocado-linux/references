@@ -127,6 +127,21 @@ network-profile: the stored choice is not usable, using the defaults:
 network-profile:   priority must list eth, wifi and modem once each, comma separated, not 'bogus'
 ```
 
+## A health-check penalty
+
+A service that decides a link has no internet can push that link behind the others without taking it down. A networkd drop-in belongs to a `.network` file, not to a link, so the drop-in goes next to the file `networkctl status <link>` names for that link, and applies to every link that file matches:
+
+```bash
+file=$(networkctl status eth0 --no-pager | sed -n 's/.*Network File: //p')   # /run/systemd/network/10-np-eth0.network
+mkdir -p "$file.d"
+printf '[DHCPv4]\nRouteMetric=2100\n' > "$file.d/penalty.conf"
+networkctl reload && networkctl reconfigure eth0
+```
+
+With eth0 at 100 and a modem link at 300, this moved the default route to the modem, left eth0's address and carrier alone, and kept the penalty through `networkctl renew eth0`. Removing `"$file.d"` and reconfiguring put eth0 back at 100. With a penalty on both links (2100 and 2300) the order did not change and a default route stayed. The generated files are rewritten by `network-profile apply`; the drop-in directories are not touched.
+
 ## Tests
 
 `tests/test-network-profile.sh` runs the script against a scratch directory (43 checks): the files it generates, the metrics for each priority, the local-only eth0, trial, confirm and revert, a reboot with an unconfirmed change, and refusal of invalid input.
+
+`tests/virtual/test-virtual.sh` runs on a unit, as root, and stands in for the links it does not have with veth pairs and a DHCP server (busybox `udhcpd`) on each far end. It never changes eth0's address, so an SSH session over eth0 survives. It needs the `veth` kernel module, which the image does not build in (`kernel-module-veth` from the feed is enough, copied to `/var/tmp/veth.ko`). It checks, with 30 checks: eth0 and a modem link together (metrics 100 and 300, which file applied, where traffic leaves), a penalty on eth0 (traffic moves to the modem link, eth0 keeps its address and carrier), a renewal with a penalty, a penalty on every link, removing the penalties, a link marked as a USB Ethernet adapter next to eth0 and a modem, and a local-only link with a DHCP server on its network (static address, no lease taken, no default route, the offered DNS server unused). Replacing the local-only profile's `DHCP=no` with `DHCP=ipv4`, or giving the modem the Ethernet metric, makes checks fail.
