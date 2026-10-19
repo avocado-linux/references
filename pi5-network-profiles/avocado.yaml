@@ -1,0 +1,105 @@
+cli_requirement: ">=0.41.0"
+
+default_target: "raspberrypi5"
+
+supported_targets:
+  - raspberrypi5
+
+##
+## Distribution
+##
+
+distro:
+  release: 2026
+  channel: next
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - network-profiles
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  # Selectable network profiles. A choice stored under /var decides what eth0 is
+  # for and the order Ethernet, Wi-Fi and a cellular modem carry traffic in. The
+  # networkd files are generated from it at boot, so nothing is baked into the
+  # image, and a change that cuts a unit off goes back by itself.
+  network-profiles:
+    # confext as well as sysext: enabling the service writes its symlink under /etc.
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Network profile selection for eth0, Wi-Fi and cellular, with revert"
+    overlay: overlay
+    enable_services:
+      - network-profile-apply.service
+    packages:
+      iproute2: "*"
+
+##
+## Images
+##
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password and is
+# referenced by rootfs/initramfs above. Define additional profiles with real
+# users, groups, and hashed passwords, then point rootfs/initramfs at them via
+# `permissions: <name>`.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  packages:
+    avocado-sdk-toolchain: "*"
