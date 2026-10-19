@@ -77,7 +77,7 @@ extensions:
       kernel-module-cdc-wdm: "*"
       kernel-module-qmi-wwan: "*"
       kernel-module-rndis-host: "*"
-      # Serial ports for AT commands and PPP-style modems
+      # Serial ports for AT commands. No PPP: the feed has no pppd to dial with.
       kernel-module-cdc-acm: "*"
       kernel-module-option: "*"
       kernel-module-usb-wwan: "*"
@@ -85,10 +85,6 @@ extensions:
       kernel-module-qcserial: "*"
       kernel-module-sierra: "*"
       kernel-module-sierra-net: "*"
-      kernel-module-ppp-generic: "*"
-      kernel-module-ppp-async: "*"
-      kernel-module-ppp-deflate: "*"
-      kernel-module-slhc: "*"
       kernel-module-tun: "*"
       # A QMI or MBIM modem answers DHCP only once a data session is open, and
       # these carry the tools that open one: qmicli and qmi-network, mbimcli

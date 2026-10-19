@@ -29,7 +29,7 @@ avocado install -f
 avocado build
 ```
 
-This builds the `cellular-modems` extension: the USB network and serial drivers (`usbnet`, `cdc_ether`, `cdc_ncm`, `cdc_mbim`, `cdc_wdm`, `qmi_wwan`, `rndis_host`, `cdc_acm`, `option`, `usb_wwan`, `usbserial`, `qcserial`, `sierra`, `sierra_net`, the PPP modules and `tun`), `lsusb`, `ethtool` and `iproute2`, the QMI and MBIM tools from `libqmi` and `libmbim`, a networkd profile for every `usb*` and `wwan*` link, and a small unit that reloads networkd after the extension is merged.
+This builds the `cellular-modems` extension: the USB network and serial drivers (`usbnet`, `cdc_ether`, `cdc_ncm`, `cdc_mbim`, `cdc_wdm`, `qmi_wwan`, `rndis_host`, `cdc_acm`, `option`, `usb_wwan`, `usbserial`, `qcserial`, `sierra`, `sierra_net` and `tun`), `lsusb`, `ethtool` and `iproute2`, the QMI and MBIM tools from `libqmi` and `libmbim`, a networkd profile for every `usb*` and `wwan*` link, and a small unit that reloads networkd after the extension is merged.
 
 ## Deploy
 
@@ -77,4 +77,5 @@ A QMI or MBIM modem shows up as `wwan0`, but DHCP gets no reply until a data ses
 
 - It does not switch a modem between USB modes. Modems that start in a storage or serial mode and need an AT command to expose a network interface need that step added.
 - It does not install ModemManager, so nothing sets an APN, manages the SIM or opens a QMI or MBIM data session by itself. The QMI and MBIM tools are there for you to do it.
+- It does not dial PPP. The feed has no `pppd`, so a modem that only offers a serial data path gets its `/dev/ttyUSB*` ports for AT commands but no connection.
 - The drivers and the profile are tested without a modem attached. Step 3 is yours to run.
