@@ -56,7 +56,7 @@ extensions:
       - sysext
       - confext
     version: "0.1.0"
-    summary: "USB cellular modem drivers and a networkd profile for usb0 and wwan0"
+    summary: "USB cellular modem drivers and a networkd profile for usb* and wwan* links"
     overlay: overlay
     enable_services:
       - cellular-modems-networkd.service

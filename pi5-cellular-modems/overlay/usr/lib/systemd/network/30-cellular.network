@@ -1,9 +1,12 @@
-# The link a USB modem creates: usb0 for an ECM/NCM/RNDIS modem, wwan0 for a
-# QMI or MBIM one. The number sorts this file ahead of the stock 80-wired.network,
-# which matches every Ethernet-type link and would otherwise give a modem the
-# same low route metric as Ethernet.
+# The link a USB modem creates: usbN for an ECM/NCM/RNDIS modem, wwanN for a
+# QMI or MBIM one. Predictable interface names are off in Avocado, so the
+# kernel's names apply, and the number is not always 0: a second modem, a modem
+# with two data interfaces, or one that resets and re-enumerates before its old
+# link is gone all come up as usb1 or wwan1. The number sorts this file ahead of
+# the stock 80-wired.network, which matches every Ethernet-type link and would
+# otherwise give a modem the same low route metric as Ethernet.
 [Match]
-Name=usb0 wwan0
+Name=usb* wwan*
 
 [Network]
 DHCP=ipv4
