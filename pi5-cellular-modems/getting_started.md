@@ -29,7 +29,7 @@ avocado install -f
 avocado build
 ```
 
-This builds the `cellular-modems` extension: the USB network and serial drivers (`usbnet`, `cdc_ether`, `cdc_ncm`, `cdc_mbim`, `cdc_wdm`, `qmi_wwan`, `rndis_host`, `cdc_acm`, `option`, `usb_wwan`, `usbserial`, `qcserial`, `sierra`, `sierra_net` and `tun`), `lsusb`, `ethtool` and `iproute2`, the QMI and MBIM tools from `libqmi` and `libmbim`, a networkd profile for every `usb*` and `wwan*` link, and a small unit that reloads networkd after the extension is merged.
+This builds the `cellular-modems` extension: the USB network and serial drivers (`usbnet`, `cdc_ether`, `cdc_ncm`, `cdc_mbim`, `cdc_wdm`, `qmi_wwan`, `rndis_host`, `cdc_acm`, `option`, `usb_wwan`, `usbserial`, `qcserial`, `sierra`, `sierra_net` and `tun`), `lsusb`, `ethtool`, `iproute2` and `systemd-analyze`, the QMI and MBIM tools from `libqmi` and `libmbim`, a networkd profile for every `usb*` and `wwan*` link, and a small unit that reloads networkd after the extension is merged.
 
 ## Deploy
 

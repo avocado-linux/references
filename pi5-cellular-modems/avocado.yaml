@@ -95,6 +95,7 @@ extensions:
       usbutils: "*"
       ethtool: "*"
       iproute2: "*"
+      systemd-analyze: "*"
 
 ##
 ## Images
