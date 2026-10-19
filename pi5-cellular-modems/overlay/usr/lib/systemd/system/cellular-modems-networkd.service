@@ -5,6 +5,11 @@ Description=Reload networkd so it sees the cellular modem network profile
 # matches the stock 80-wired.network and gets Ethernet's route metric. This unit
 # exists only after the merge, which makes it the first point that can ask
 # networkd to re-read its configuration.
+#
+# This is a stopgap for a platform ordering gap: avocado-extension.service runs
+# Before=sysinit.target, but systemd-networkd.service has no ordering against
+# it. Remove this unit, and its enable_services entry, once the platform orders
+# systemd-networkd.service After=avocado-extension.service.
 After=systemd-networkd.service
 Wants=systemd-networkd.service
 
