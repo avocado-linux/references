@@ -29,7 +29,7 @@ avocado install -f
 avocado build
 ```
 
-This builds the `cellular-modems` extension: the USB network and serial drivers (`usbnet`, `cdc_ether`, `cdc_ncm`, `cdc_mbim`, `cdc_wdm`, `qmi_wwan`, `rndis_host`, `cdc_acm`, `option`, `usb_wwan`, `usbserial`, `qcserial`, `sierra`, `sierra_net`, the PPP modules and `tun`), `lsusb`, `ethtool` and `iproute2`, a networkd profile for every `usb*` and `wwan*` link, and a small unit that reloads networkd after the extension is merged.
+This builds the `cellular-modems` extension: the USB network and serial drivers (`usbnet`, `cdc_ether`, `cdc_ncm`, `cdc_mbim`, `cdc_wdm`, `qmi_wwan`, `rndis_host`, `cdc_acm`, `option`, `usb_wwan`, `usbserial`, `qcserial`, `sierra`, `sierra_net`, the PPP modules and `tun`), `lsusb`, `ethtool` and `iproute2`, the QMI and MBIM tools from `libqmi` and `libmbim`, a networkd profile for every `usb*` and `wwan*` link, and a small unit that reloads networkd after the extension is merged.
 
 ## Deploy
 
@@ -69,10 +69,12 @@ Plug in the modem and watch the kernel:
 ssh root@<device-ip> 'lsusb; dmesg | tail -20; ip -br link; networkctl status usb0 wwan0 --no-pager'
 ```
 
-An ECM, NCM or RNDIS modem shows up as `usb0`; a QMI or MBIM modem as `wwan0`. Once it has an address, `ip route` lists a default route through it at metric 300, behind `eth0` at 10 and `wlan0` at 200.
+An ECM, NCM or RNDIS modem shows up as `usb0` and gets an address by DHCP on its own. Once it has one, `ip route` lists a default route through it at metric 300, behind `eth0` at 10 and `wlan0` at 200.
+
+A QMI or MBIM modem shows up as `wwan0`, but DHCP gets no reply until a data session is open, so the route check above does not apply to it yet. Open the session with `qmi-network` or `qmicli` for a QMI modem, or `mbim-network` or `mbimcli` for an MBIM one; the extension ships all four. Many modems can also be switched to ECM mode instead, after which they behave like the first case. On a Quectel modem such as the EC25 or EG25, that is `AT+QCFG="usbnet",1` on its AT port, followed by a modem reset.
 
 ### What this reference does not do
 
 - It does not switch a modem between USB modes. Modems that start in a storage or serial mode and need an AT command to expose a network interface need that step added.
-- It does not install ModemManager, so there is no APN or SIM management. A QMI or MBIM modem needs its connection brought up by whatever you run for that.
+- It does not install ModemManager, so nothing sets an APN, manages the SIM or opens a QMI or MBIM data session by itself. The QMI and MBIM tools are there for you to do it.
 - The drivers and the profile are tested without a modem attached. Step 3 is yours to run.

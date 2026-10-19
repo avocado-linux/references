@@ -90,6 +90,11 @@ extensions:
       kernel-module-ppp-deflate: "*"
       kernel-module-slhc: "*"
       kernel-module-tun: "*"
+      # A QMI or MBIM modem answers DHCP only once a data session is open, and
+      # these carry the tools that open one: qmicli and qmi-network, mbimcli
+      # and mbim-network.
+      libqmi: "*"
+      libmbim: "*"
       # Tools for working on the unit
       usbutils: "*"
       ethtool: "*"
