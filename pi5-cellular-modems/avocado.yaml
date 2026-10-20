@@ -58,14 +58,12 @@ extensions:
     version: "0.1.0"
     summary: "USB cellular modem drivers and a networkd profile for usb* and wwan* links"
     overlay: overlay
-    enable_services:
-      - cellular-modems-networkd.service
-    # A merge on a running device, such as `avocadoctl refresh`, only links the
-    # unit, because enable_services does not start it, so nothing would reload
-    # networkd. Reload it on every merge so a later change to
-    # 30-cellular.network takes effect without a reboot. On a cold boot the
-    # merge runs before D-Bus is up and this reload fails with a warning, which
-    # is why the unit above stays.
+    # The platform starts systemd-networkd after avocado-extension.service, so
+    # networkd reads 30-cellular.network on a cold boot. A merge on a running
+    # device, such as `avocadoctl refresh`, does not restart networkd, so reload
+    # it on every merge to make a later change to 30-cellular.network take
+    # effect without a reboot. At a cold boot the merge runs before D-Bus is up
+    # and this reload fails with a warning, which is harmless.
     on_merge:
       - networkctl reload
     packages:

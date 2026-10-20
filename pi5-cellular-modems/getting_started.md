@@ -29,7 +29,7 @@ avocado install -f
 avocado build
 ```
 
-This builds the `cellular-modems` extension: the USB network and serial drivers (`usbnet`, `cdc_ether`, `cdc_ncm`, `cdc_mbim`, `cdc_wdm`, `qmi_wwan`, `rndis_host`, `cdc_acm`, `option`, `usb_wwan`, `usbserial`, `qcserial`, `sierra`, `sierra_net` and `tun`), `lsusb`, `ethtool`, `iproute2` and `systemd-analyze`, the QMI and MBIM tools from `libqmi` and `libmbim`, a networkd profile for every `usb*` and `wwan*` link, and a small unit that reloads networkd after the extension is merged.
+This builds the `cellular-modems` extension: the USB network and serial drivers (`usbnet`, `cdc_ether`, `cdc_ncm`, `cdc_mbim`, `cdc_wdm`, `qmi_wwan`, `rndis_host`, `cdc_acm`, `option`, `usb_wwan`, `usbserial`, `qcserial`, `sierra`, `sierra_net` and `tun`), `lsusb`, `ethtool`, `iproute2` and `systemd-analyze`, the QMI and MBIM tools from `libqmi` and `libmbim`, and a networkd profile for every `usb*` and `wwan*` link.
 
 ## Deploy
 
@@ -53,7 +53,7 @@ Every module prints `ok`. A modem loads the ones it needs by itself when you plu
 
 ### 2. The network profile is active
 
-networkd can start before the extension is merged, so the extension asks it to re-read its configuration twice: a unit that runs on every boot, and a merge hook that runs on every merge, including `avocadoctl refresh` on a running device. Check that a link named `usb0` gets the cellular profile, with no manual reload:
+The platform starts networkd after the extensions are merged, so it reads the profile on a cold boot. A merge hook also reloads networkd on every merge, including `avocadoctl refresh` on a running device. Check that a link named `usb0` gets the cellular profile, with no manual reload:
 
 ```bash
 ssh root@<device-ip> 'modprobe tun; ip tuntap add dev usb0 mode tap; ip link set usb0 up; sleep 3; networkctl status usb0 --no-pager | grep "Network File"; ip link del usb0'
