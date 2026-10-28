@@ -61,6 +61,13 @@ extensions:
     modprobe:
       - brcmfmac
 
+    # enable_services is validated against this extension's sysroot by file name,
+    # so a template instance such as serial-getty@ttyGS0.service needs a file of
+    # that name there, and the build reads its [Install] section through it. Each
+    # instance is a symlink to its template in
+    # overlay/usr/lib/systemd/system/. serial-getty@.service is systemd's own
+    # unit, copied unchanged from the 2024/edge rootfs, because the extension
+    # sysroot does not carry systemd.
     enable_services:
       - rubicon-usb-gadget.service
       - rubicon-usb-network.service
