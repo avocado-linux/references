@@ -11,7 +11,7 @@ This guide walks you through building and running the YOLO object detection refe
 - USB (UVC) camera (e.g., Opal Tadpole)
 - SD card or USB cable for flashing
 
-To target the AGX Orin, pass `--target jetson-agx-orin-devkit` to the `avocado`
+To target the AGX Orin, pass `--target jetson-agx-orin` to the `avocado`
 commands below. The committed TensorRT engine is built for the Orin Nano, so on
 the AGX the on-device fallback compiles a matching engine on first boot (a
 one-time, few-minute cost, then cached) — the dashboard comes up automatically
@@ -76,7 +76,7 @@ You should see output like:
 
 ```
 app starting
-  device: avocado-jetson-orin-nano-devkit
+  device: avocado-jetson-orin-nano
   camera: /dev/video0 (1280x720@30fps)
   model: /usr/lib/app/models/yolo11n.onnx
   tensorrt: 10.3.0

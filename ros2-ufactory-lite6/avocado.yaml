@@ -9,18 +9,15 @@ supported_targets:
   - imx93-frdm
   - imx95-frdm
   - raspberrypi5
-  - rzv2n-sr-som
-  - stm32mp257f-dk
   - rubikpi3
-  - grinn-astra-1680-sbc
 
 ##
 ## Distribution
 ##
 
 distro:
-  release: 2024
-  channel: next
+  release: 2026
+  channel: edge
 
 ##
 ## Runtimes

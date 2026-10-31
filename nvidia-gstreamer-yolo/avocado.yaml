@@ -1,6 +1,6 @@
 cli_requirement: ">=0.41.0"
 
-default_target: "jetson-orin-nano-devkit"
+default_target: "jetson-orin-nano"
 
 # Add additional supported targets or use "*" for all targets.
 # Both boards are Tegra234 (Orin SoC family), so the vision-runtime package set
@@ -10,15 +10,15 @@ default_target: "jetson-orin-nano-devkit"
 # first boot (~few minutes, then cached in /var). To make AGX first boot instant
 # too, we'd reintroduce per-target engine staging.
 supported_targets:
-  - jetson-orin-nano-devkit
-  - jetson-agx-orin-devkit
+  - jetson-orin-nano
+  - jetson-agx-orin
 
 ##
 ## Distribution
 ##
 
 distro:
-  release: 2024
+  release: 2026
   channel: edge
 
 ##

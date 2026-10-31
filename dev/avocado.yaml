@@ -3,7 +3,7 @@ cli_requirement: ">=0.41.0"
 supported_targets: '*'
 
 distro:
-  release: 2024
+  release: 2026
   channel: edge
 
 runtimes:

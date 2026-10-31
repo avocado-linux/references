@@ -26,7 +26,7 @@ cd python-yolo
 This reference defaults to `raspberrypi5`. To target other hardware instead, pass `--target`:
 
 ```bash
-avocado init --reference python-yolo --target jetson-orin-nano-devkit python-yolo
+avocado init --reference python-yolo --target jetson-orin-nano python-yolo
 cd python-yolo
 ```
 

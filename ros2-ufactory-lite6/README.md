@@ -7,10 +7,7 @@ targets:
   - imx93-evk
   - imx93-frdm
   - raspberrypi5
-  - rzv2n-sr-som
-  - stm32mp257f-dk
   - rubikpi3
-  - grinn-astra-1680-sbc
 topics:
   - container
   - docker

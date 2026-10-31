@@ -3,11 +3,9 @@ language: Shell
 targets:
   - raspberrypi5
   - raspberrypi4
-  - reterminal
-  - reterminal-dm
-  - icam-540
-  - jetson-orin-nano-devkit
-  - jetson-agx-orin-devkit
+  - jetson-orin-nx
+  - jetson-orin-nano
+  - jetson-agx-orin
 topics:
   - ui
   - web
