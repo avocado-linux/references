@@ -3,12 +3,11 @@ cli_requirement: ">=0.41.0"
 default_target: "raspberrypi4"
 
 supported_targets:
-  - raspberrypi0-2w
   - raspberrypi4
   - raspberrypi5
 
 distro:
-  release: 2024
+  release: 2026
   channel: edge
 
 runtimes:

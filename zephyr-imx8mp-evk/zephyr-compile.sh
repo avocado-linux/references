@@ -61,6 +61,9 @@ fi
 ARM_GCC_REAL="$(readlink -f "${ARM_GCC}")"
 export GNUARMEMB_TOOLCHAIN_PATH="$(dirname "$(dirname "${ARM_GCC_REAL}")")"
 export ZEPHYR_TOOLCHAIN_VARIANT="gnuarmemb"
+# The SDK's CMake 4 rejects modules declaring cmake_minimum_required < 3.5
+# (libmetal at this Zephyr rev); this is CMake's documented opt-in for them.
+export CMAKE_POLICY_VERSION_MINIMUM=3.5
 echo "ZEPHYR_TOOLCHAIN_VARIANT=${ZEPHYR_TOOLCHAIN_VARIANT}"
 echo "GNUARMEMB_TOOLCHAIN_PATH=${GNUARMEMB_TOOLCHAIN_PATH}"
 

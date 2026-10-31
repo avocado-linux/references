@@ -6,7 +6,7 @@ This guide walks you through deploying Docker containers on an Avocado OS device
 
 2. **Runtime swap.** Once the device is up, an included `container-swap` helper script pulls a *different* image and restarts the service in place — **no rebuild, no reflash**. The reference demonstrates this with `docker.io/peridionick/hello-flask-new:py314` (Python 3.14 + Flask 3.1.3) and includes a rollback to the originally-baked image that works **fully offline** because that image stays cached locally throughout.
 
-By default Avocado OS ships with Python 3.12 (if on release 2024). This reference helps show the flexiblity of Avocado working with Docker containers as well as showing if you need to run other versions of Python.  
+By default Avocado OS ships with Python 3.14 (release 2026). This reference helps show the flexiblity of Avocado working with Docker containers as well as showing if you need to run other versions of Python.  
 
 Following the guide end-to-end, you will:
 
@@ -364,7 +364,7 @@ To support another target, add `stone/<target>/stone-<target>.json`:
 
 1. Pull the BSP's default manifest out of the SDK container:
    ```bash
-   docker run --rm docker.io/avocadolinux/sdk:2024 \
+   docker run --rm docker.io/avocadolinux/sdk:2026 \
      cat /opt/avocado-sdk/stone/stone-<target>.json \
      > stone/<target>/stone-<target>.json
    ```

@@ -5,7 +5,7 @@ supported_targets:
   - qemux86-64
 
 distro:
-  release: 2024
+  release: 2026
   channel: edge
 
 ##

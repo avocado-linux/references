@@ -3,14 +3,12 @@ cli_requirement: ">=0.41.0"
 supported_targets:
   - raspberrypi5
   - raspberrypi4
-  - reterminal
-  - reterminal-dm
-  - icam-540
-  - jetson-orin-nano-devkit
-  - jetson-agx-orin-devkit
+  - jetson-orin-nx
+  - jetson-orin-nano
+  - jetson-agx-orin
 
 distro:
-  release: 2024
+  release: 2026
   channel: edge
 
 runtimes:

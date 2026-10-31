@@ -6,7 +6,7 @@ targets:
   - imx91-frdm
   - imx93-frdm
   - imx93-evk
-  - jetson-orin-nano-devkit
+  - jetson-orin-nano
 topics:
   - vision
   - ai
