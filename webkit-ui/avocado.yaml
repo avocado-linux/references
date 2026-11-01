@@ -3,6 +3,8 @@ cli_requirement: ">=0.41.0"
 supported_targets:
   - raspberrypi5
   - raspberrypi4
+  - reterminal
+  - reterminal-dm
   - jetson-orin-nx
   - jetson-orin-nano
   - jetson-agx-orin
@@ -10,6 +12,11 @@ supported_targets:
 distro:
   release: 2026
   channel: edge
+  # Boards with no 2026 feed stay on 2024 (target-<name> overrides).
+  target-reterminal:
+    release: 2024
+  target-reterminal-dm:
+    release: 2024
 
 runtimes:
   dev:

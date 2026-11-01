@@ -9,7 +9,9 @@ supported_targets:
   - imx93-frdm
   - imx95-frdm
   - raspberrypi5
+  - rzv2n-sr-som
   - rubikpi3
+  - grinn-astra-1680-sbc
 
 ##
 ## Distribution
@@ -18,6 +20,11 @@ supported_targets:
 distro:
   release: 2026
   channel: edge
+  # Boards with no 2026 feed stay on 2024 (target-<name> overrides).
+  target-rzv2n-sr-som:
+    release: 2024
+  target-grinn-astra-1680-sbc:
+    release: 2024
 
 ##
 ## Runtimes

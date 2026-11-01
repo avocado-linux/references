@@ -3,9 +3,11 @@ language: Shell
 targets:
   - raspberrypi5
   - raspberrypi4
-  - jetson-orin-nx
+  - reterminal
+  - reterminal-dm
   - jetson-orin-nano
   - jetson-agx-orin
+  - jetson-orin-nx
 topics:
   - ui
   - web

@@ -1,6 +1,7 @@
 ---
 language: Rust
 targets:
+  - raspberrypi0-2w
   - raspberrypi4
   - raspberrypi5
 topics:
