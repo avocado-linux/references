@@ -47,8 +47,9 @@ avocado provision -r power --profile tegraflash-nvme
 For an SD card in the board's slot, use `--profile tegraflash-sd`. Both erase the target entirely and rewrite the QSPI
 firmware and the UEFI variables. When it finishes, remove the FC_REC jumper and power-cycle the board.
 
-If provision cannot flash the board from its container on your host (the CLI reports that it could not retrieve the chip
-ID), flash from the host instead. This reference does not cover that path.
+The `sdk:` block in `avocado.yaml` carries `container_args` with `--privileged`, `-v /dev:/dev` and `-v /sys:/sys`. The
+provision container needs them to reach the board over USB. Without them the flash stops at its first step with `could not
+retrieve chip ID`, because the container has no `/dev/bus/usb`.
 
 ## Get a shell
 

@@ -64,3 +64,11 @@ sdk:
   image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
   packages:
     avocado-sdk-toolchain: "*"
+
+  # The provision container must reach the board over USB while it is in recovery mode. Without a privileged
+  # container there is no /dev/bus/usb inside it and the flash fails with "could not retrieve chip ID".
+  container_args:
+    - --network=host
+    - --privileged
+    - -v /dev:/dev
+    - -v /sys:/sys
