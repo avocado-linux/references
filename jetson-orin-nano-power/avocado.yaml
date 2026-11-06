@@ -1,0 +1,74 @@
+cli_requirement: ">=1.0.0"
+
+# Jetson Orin Nano 8GB devkit with the power mode and CPU/GPU frequency scaling that JetPack applies at boot.
+# The board support extension starts nvpmodel (25 W mode) and the idle-governors unit; avocado-ext-dev grows /var on the
+# first boot; avocado-ext-sshd-dev and avocado-ext-bringup give a way in on a board with nothing provisioned.
+default_target: "jetson-orin-nano"
+supported_targets:
+  - jetson-orin-nano
+
+##
+## Distribution
+##
+
+distro:
+  release: 2026
+  channel: next
+
+##
+## Runtimes
+##
+
+runtimes:
+  power:
+    extensions:
+      - avocado-bsp-jetson-orin-nano
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-ext-bringup
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+## All four come from the Avocado package feed; there is nothing to compile.
+##
+
+extensions:
+  # Kernel modules, nvpower and nvpmodel, and the avocado-idle-governors.service confext unit.
+  avocado-bsp-jetson-orin-nano:
+    source:
+      type: package
+      version: "*"
+
+  # First-boot /var growth (avocado-grow-var.service) and the development tools.
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  # sshd with root login; authorized keys are read from /var/lib/ssh/authorized_keys.
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  # Bringup tools and a serial console that logs in as root. Development only.
+  avocado-ext-bringup:
+    source:
+      type: package
+      version: "*"
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
+  packages:
+    avocado-sdk-toolchain: "*"
+
+  # The provision container must reach the board over USB while it is in recovery mode. Without a privileged
+  # container there is no /dev/bus/usb inside it and the flash fails with "could not retrieve chip ID".
+  container_args:
+    - --network=host
+    - --privileged
+    - -v /dev:/dev
+    - -v /sys:/sys
