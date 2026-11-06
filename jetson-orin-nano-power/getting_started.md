@@ -45,7 +45,9 @@ avocado provision -r power --profile tegraflash-nvme
 ```
 
 For an SD card in the board's slot, use `--profile tegraflash-sd`. Both erase the target entirely and rewrite the QSPI
-firmware and the UEFI variables. When it finishes, remove the FC_REC jumper and power-cycle the board.
+firmware and the UEFI variables. When it finishes, remove the FC_REC jumper. The board then boots the flashed image by
+itself (on the NVMe it did, 37 seconds after the flash ended, with no power cycle). Power-cycle it only if it comes back up
+in recovery mode.
 
 The `sdk:` block in `avocado.yaml` carries `container_args` with `--privileged`, `-v /dev:/dev` and `-v /sys:/sys`. The
 provision container needs them to reach the board over USB. Without them the flash stops at its first step with `could not
