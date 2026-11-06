@@ -21,3 +21,11 @@ and GPU frequency with load, so the module idles where JetPack idles instead of 
 
 Every extension comes from the package feed, so there is nothing to compile. See [getting_started.md](getting_started.md)
 to build and provision it.
+
+## Depends on unpublished changes
+
+The power mode and the governors come from `avocado-bsp-jetson-orin-nano`, and the serial console from
+`avocado-ext-bringup`. Neither is published yet. The BSP on the feed today (0.2.1) has no governors unit and leaves
+`nvpmodel.service` and `nvpower.service` disabled, so a board flashed from the feed keeps the `performance` governors and
+prints `power mode is not set!`. `avocado-ext-bringup` is not on the feed. This reference works as described once the BSP
+change (bsp-jetson-orin-nano, in review) and the bringup extension are published.
