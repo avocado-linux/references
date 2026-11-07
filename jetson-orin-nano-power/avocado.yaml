@@ -29,10 +29,21 @@ runtimes:
     packages:
       avocado-runtime: "*"
 
+  # The same runtime plus TensorRT, for running a model on the GPU. Build and provision it with `-r trt`.
+  trt:
+    extensions:
+      - avocado-bsp-jetson-orin-nano
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-ext-bringup
+      - avocado-ext-trt
+    packages:
+      avocado-runtime: "*"
+
 ##
 ## Extensions
 ##
-## All four come from the Avocado package feed; there is nothing to compile.
+## The first four come from the Avocado package feed and the fifth is a local path extension; there is nothing to compile.
 ##
 
 extensions:
@@ -59,6 +70,13 @@ extensions:
     source:
       type: package
       version: "*"
+
+  # trtexec and the TensorRT, cuDNN and cuBLAS libraries, from the feed. Used by the `trt` runtime only. The header of
+  # ext-trt/avocado.yaml lists the manual steps this replaces on a stock Ubuntu/JetPack install.
+  avocado-ext-trt:
+    source:
+      type: path
+      path: ext-trt
 
 sdk:
   image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"

@@ -18,6 +18,8 @@ and GPU frequency with load, so the module idles where JetPack idles instead of 
 - `/var` grows to fill the storage on first boot with `avocado-ext-dev`
 - A way in on a fresh board: a serial console that logs in as root, then SSH with your key
 - `verify-power.sh` reads the module's INA3221 power monitor and reports idle watts
+- A second runtime, `trt`, adds `trtexec` and the TensorRT, cuDNN and cuBLAS libraries from the feed, so the board runs a
+  model without the `apt-get install nvidia-jetpack` step of a stock Ubuntu install
 
 Every extension comes from the package feed, so there is nothing to compile. See [getting_started.md](getting_started.md)
 to build and provision it.

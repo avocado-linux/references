@@ -88,7 +88,27 @@ ssh root@<device-ip> sh -s < verify-power.sh
 On the bench board, two boots read an idle VDD_IN mean of 4717 mW and 4747 mW with the 25 W mode, `simple_ondemand` on the GPU
 and `schedutil` on the CPUs. Your reading depends on the carrier board and what is attached to it.
 
+## Run a model with TensorRT
+
+The `trt` runtime is the `power` runtime plus the `avocado-ext-trt` extension. Build and flash it the same way, with `-r trt`:
+
+```bash
+avocado build -r trt
+avocado provision -r trt --profile tegraflash-nvme
+```
+
+On the board, build an engine from an ONNX model and run it:
+
+```bash
+/usr/src/tensorrt/bin/trtexec --onnx=model.onnx --saveEngine=model.plan --fp16
+/usr/src/tensorrt/bin/trtexec --loadEngine=model.plan --duration=60 --warmUp=1000
+```
+
+On a stock Ubuntu/JetPack install the same board needs the installer ISO, the UEFI menu, NVIDIA's first-boot setup on a
+second serial port, SSH enabled by hand and `apt-get install nvidia-jetpack` over the network. The header of
+`ext-trt/avocado.yaml` lists each of those steps.
+
 ## Development Mode
 
 The serial autologin in `avocado-ext-bringup` gives a root shell to anyone with access to the console. Remove the extension
-from `runtimes.power.extensions` in `avocado.yaml` before shipping.
+from `runtimes.power.extensions` and `runtimes.trt.extensions` in `avocado.yaml` before shipping.
