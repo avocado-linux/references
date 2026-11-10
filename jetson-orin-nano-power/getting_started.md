@@ -26,7 +26,7 @@ avocado install -f
 avocado build
 ```
 
-`avocado install` pulls the SDK and the four extensions from the package feed. `avocado build` assembles the runtime
+`avocado install` pulls the SDK and the extensions from the package feed. `avocado build` assembles the runtime
 `power`. There is no compile step.
 
 ## Provision
@@ -45,9 +45,10 @@ avocado provision -r power --profile tegraflash-nvme
 ```
 
 For an SD card in the board's slot, use `--profile tegraflash-sd`. Both erase the target entirely and rewrite the QSPI
-firmware and the UEFI variables. When it finishes, the board boots the flashed image by itself, and you do not need to
-remove the FC_REC jumper or power-cycle it first. On the NVMe it reached the root login on the serial console 38 seconds
-after the flash ended.
+firmware and the UEFI variables. When it finishes, the board boots the flashed image by itself with the jumper still
+fitted, and you do not need to power-cycle it. On the NVMe it reached the root login on the serial console 38 seconds after
+the flash ended. Remove the FC_REC jumper before the first power cycle: with it fitted, a power cycle puts the board back
+into recovery mode and `lsusb` shows `0955:7523` again.
 
 The `sdk:` block in `avocado.yaml` carries `container_args` with `--privileged`, `-v /dev:/dev` and `-v /sys:/sys`. The
 provision container needs them to reach the board over USB. Without them the flash stops at its first step with `could not
@@ -103,6 +104,10 @@ On the board, build an engine from an ONNX model and run it:
 /usr/src/tensorrt/bin/trtexec --onnx=model.onnx --saveEngine=model.plan --fp16
 /usr/src/tensorrt/bin/trtexec --loadEngine=model.plan --duration=60 --warmUp=1000
 ```
+
+The root filesystem is read-only, so keep models and engines under `/var`, for example `/var/trt`. Run `sync` after
+building an engine and before you power-cycle the board: on the bench an engine written just before a power cycle came back
+as a 0-byte file, and `trtexec` failed with `read 0 out of 32 bytes`. The cause was not isolated.
 
 On a stock Ubuntu/JetPack install the same board needs the installer ISO, the UEFI menu, NVIDIA's first-boot setup on a
 second serial port, SSH enabled by hand and `apt-get install nvidia-jetpack` over the network. The header of

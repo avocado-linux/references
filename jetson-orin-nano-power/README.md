@@ -21,8 +21,8 @@ and GPU frequency with load, so the module idles where JetPack idles instead of 
 - A second runtime, `trt`, adds `trtexec` and the TensorRT, cuDNN and cuBLAS libraries from the feed, so the board runs a
   model without the `apt-get install nvidia-jetpack` step of a stock Ubuntu install
 
-Every extension comes from the package feed, so there is nothing to compile. See [getting_started.md](getting_started.md)
-to build and provision it.
+The extensions come from the package feed, except `avocado-ext-trt`, a path extension in this project that only lists feed
+packages, so there is nothing to compile. See [getting_started.md](getting_started.md) to build and provision it.
 
 ## Depends on unpublished changes
 
@@ -31,3 +31,17 @@ The power mode and the governors come from `avocado-bsp-jetson-orin-nano`, and t
 `nvpmodel.service` and `nvpower.service` disabled, so a board flashed from the feed keeps the `performance` governors and
 prints `power mode is not set!`. `avocado-ext-bringup` is not on the feed. This reference works as described once the BSP
 change (bsp-jetson-orin-nano, in review) and the bringup extension are published.
+
+To try the governors before then, clone the branch of that change next to the project and point the extension at it in
+`avocado.yaml`:
+
+```yaml
+extensions:
+  avocado-bsp-jetson-orin-nano:
+    source:
+      type: path
+      path: ../bsp
+```
+
+Build with `avocado install -f` and `avocado build`. That is how the figures in the JetPack comparison field note were
+measured.
