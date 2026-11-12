@@ -1,0 +1,25 @@
+[Unit]
+Description=Wi-Fi station: wpa_supplicant on wlan0 with credentials from /var
+Documentation=file:/var/lib/wifi-station/
+# The credentials are written at provisioning time and never ship in an image
+# or an extension. Without them this unit stays inactive instead of failing.
+ConditionPathExists=/var/lib/wifi-station/wpa_supplicant.conf
+RequiresMountsFor=/var/lib/wifi-station
+After=sys-subsystem-net-devices-wlan0.device
+BindsTo=sys-subsystem-net-devices-wlan0.device
+Before=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/wpa_supplicant -c/var/lib/wifi-station/wpa_supplicant.conf -Dnl80211 -iwlan0
+Restart=on-failure
+RestartSec=5
+# networkd starts before the extension merge, so on a cold boot it has not seen
+# this extension's 25-wlan0.network and leaves wlan0 unmanaged. The merge hook
+# runs before D-Bus is up, so a reload there fails; this unit starts later, once
+# the bus answers. The leading "-" keeps a reload failure from failing the unit.
+ExecStartPost=-/usr/bin/networkctl reload
+
+[Install]
+WantedBy=multi-user.target

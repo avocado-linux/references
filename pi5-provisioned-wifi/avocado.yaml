@@ -1,0 +1,117 @@
+cli_requirement: ">=0.41.0"
+
+default_target: "raspberrypi5"
+
+supported_targets:
+  - raspberrypi5
+
+##
+## Distribution
+##
+
+# Wi-Fi support for the Pi 5's onboard radio is in the 2026 release.
+distro:
+  release: 2026
+  channel: next
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-bsp-{{ avocado.target.board }}
+      - wifi-station
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+
+extensions:
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+  # wpa_supplicant and a unit that reads its credentials from /var. The
+  # credentials are never part of the extension: the unit stays inactive until
+  # provisioning writes the config (see getting_started.md). The radio's
+  # drivers, firmware and regulatory database are not repeated here: the
+  # avocado-bsp extension above already carries kernel-module-brcmfmac,
+  # -brcmfmac-wcc, -brcmutil, -cfg80211 and -rfkill, the rpidistro firmware and
+  # wireless-regdb-static, and loads them with a udev trigger when it merges.
+  wifi-station:
+    types:
+      - sysext
+      - confext
+    version: "0.1.0"
+    summary: "Wi-Fi station whose credentials are provisioned into /var"
+    overlay: overlay
+    enable_services:
+      - wifi-station.service
+    # avocadoctl runs these after every merge, so a changed extension takes
+    # effect on a deploy without a reboot. The networkd reload is in the unit
+    # (ExecStartPost): at a cold boot the merge hook runs before D-Bus is up and
+    # `networkctl reload` fails there.
+    on_merge:
+      - systemctl restart --no-block wifi-station.service
+    on_unmerge:
+      - systemctl stop --no-block wifi-station.service
+    packages:
+      wpa-supplicant: "*"
+      iw: "*"
+
+##
+## Images
+##
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password and is
+# referenced by rootfs/initramfs above. Define additional profiles with real
+# users, groups, and hashed passwords, then point rootfs/initramfs at them via
+# `permissions: <name>`.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  packages:
+    avocado-sdk-toolchain: "*"
