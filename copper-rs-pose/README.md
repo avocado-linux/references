@@ -5,6 +5,7 @@ targets:
   - imx91-frdm
   - imx93-evk
   - imx93-frdm
+  - imx95-frdm
   - jetson-agx-orin
   - jetson-agx-thor
   - jetson-orin-nano

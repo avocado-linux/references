@@ -57,7 +57,7 @@ The first build compiles about 700 Rust crates and takes some minutes. Later bui
 
 ### Raspberry Pi and NXP boards
 
-For `raspberrypi4`, `raspberrypi5`, `imx8mp-evk`, `imx91-frdm`, `imx93-evk` and `imx93-frdm`, insert your SD card and provision:
+For `raspberrypi4`, `raspberrypi5`, `imx8mp-evk`, `imx91-frdm`, `imx93-evk`, `imx93-frdm` and `imx95-frdm`, insert your SD card and provision:
 
 ```bash
 avocado provision -r dev --profile sd
