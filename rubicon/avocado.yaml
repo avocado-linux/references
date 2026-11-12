@@ -52,7 +52,13 @@ extensions:
   avocado-ext-cli:
     source:
       type: package
-      version: '*'
+      # Pinned off 1.0.0: that package ships its Rust source without the schemas/
+      # directory that src/utils/config_lint.rs includes at compile time, so
+      # `avocado build` fails in the avocado-cli-compile section. 1.0.0~rc.5 is the
+      # newest build without that include and it carries the $CC lookup fix.
+      # Remove the pin once a published avocado-ext-cli lists schemas in
+      # package_files and builds for raspberrypi4.
+      version: '1.0.0~rc.5'
 
   rubicon:
     version: 0.1.0
