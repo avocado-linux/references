@@ -1,0 +1,117 @@
+cli_requirement: ">=1.0.0"
+
+# Jetson Orin Nano 8GB devkit with the power mode and CPU/GPU frequency scaling that JetPack applies at boot.
+# The board support extension starts nvpmodel (25 W mode) and the idle-governors unit; avocado-ext-dev grows /var on the
+# first boot; avocado-ext-sshd-dev and the dev permissions profile give a way in on a board with nothing provisioned.
+default_target: "jetson-orin-nano"
+supported_targets:
+  - jetson-orin-nano
+
+##
+## Distribution
+##
+
+distro:
+  release: 2026
+  channel: next
+
+##
+## Images
+##
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password. Define a
+# profile with real users and hashed passwords before shipping anything, and
+# point rootfs/initramfs at it.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+##
+## Runtimes
+##
+
+runtimes:
+  power:
+    extensions:
+      - avocado-bsp-jetson-orin-nano
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+    packages:
+      avocado-runtime: "*"
+
+  # The same runtime plus TensorRT, for running a model on the GPU. Build and provision it with `-r trt`.
+  trt:
+    extensions:
+      - avocado-bsp-jetson-orin-nano
+      - avocado-ext-dev
+      - avocado-ext-sshd-dev
+      - avocado-ext-trt
+    packages:
+      avocado-runtime: "*"
+
+##
+## Extensions
+##
+## Everything comes from the Avocado package feed; avocado-ext-trt only lists feed packages, so there is nothing to compile.
+##
+
+extensions:
+  # Kernel modules, nvpower and nvpmodel, and the avocado-idle-governors.service confext unit.
+  avocado-bsp-jetson-orin-nano:
+    source:
+      type: package
+      version: "*"
+
+  # First-boot /var growth (avocado-grow-var.service) and the development tools.
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  # sshd with root login; authorized keys are read from /var/lib/ssh/authorized_keys.
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  # trtexec at /usr/src/tensorrt/bin/trtexec, with the TensorRT, cuDNN and cuBLAS libraries from the feed. Used by the
+  # `trt` runtime only.
+  avocado-ext-trt:
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: TensorRT trtexec for the Orin Nano
+    packages:
+      tensorrt-trtexec-prebuilt: "*"
+      # Owns libnvinfer_plugin.so.10 and libnvonnxparser.so.10. Without it trtexec stops with
+      # "Unable to open library: libnvinfer_plugin.so.10".
+      tensorrt-plugins-prebuilt: "*"
+      libnvinfer10: "*"
+      libnvinfer-builder-resource-ptx: "*"
+      cudnn: "*"
+      libcublas: "*"
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
+  packages:
+    avocado-sdk-toolchain: "*"
+
+  # The provision container must reach the board over USB while it is in recovery mode. Without a privileged
+  # container there is no /dev/bus/usb inside it and the flash fails with "could not retrieve chip ID".
+  container_args:
+    - --network=host
+    - --privileged
+    - -v /dev:/dev
+    - -v /sys:/sys
