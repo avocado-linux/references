@@ -1,0 +1,84 @@
+(
+    tasks: [
+        (
+            id: "camera",
+            type: "cu_gstreamer::CuDefaultGStreamer",
+            config: {
+                // /dev/copper-camera is a udev link to the USB (UVC) camera.
+                "pipeline": "v4l2src device=/dev/copper-camera ! videoconvert ! videoscale ! video/x-raw, format=NV12, width=640, height=360 ! appsink name=copper max-buffers=1 drop=true sync=false",
+                "caps": "video/x-raw, format=NV12, width=640, height=360",
+                "log_bus_messages": true,
+                "log_pad_events": true,
+                "log_src_pad_events": true,
+                "stop_timeout_ms": 2000,
+            },
+            // Do not write raw frames to the .copper log (about 345 KB each).
+            logging: (
+                enabled: false,
+            ),
+        ),
+        (
+            id: "gst_to_image",
+            type: "tasks::GstToCuImage",
+            config: {
+                "width": 640,
+                "height": 360,
+                "fourcc": "NV12",
+            },
+            logging: (
+                enabled: false,
+            ),
+        ),
+        (
+            id: "yolo",
+            type: "tasks::YoloPose",
+            config: {
+                "variant": "yolov8n-pose",
+                // Installed into the extension by copper-install.sh.
+                "model_path": "/usr/share/copper-rs-pose/yolov8n-pose.safetensors",
+                "conf_threshold": 0.25,
+                "iou_threshold": 0.7,
+            },
+        ),
+        (
+            id: "viz",
+            type: "tasks::RerunPoseViz",
+        ),
+    ],
+    cnx: [
+        (
+            src: "camera",
+            dst: "gst_to_image",
+            msg: "cu_gstreamer::CuGstBuffer",
+        ),
+        (
+            src: "gst_to_image",
+            dst: "yolo",
+            msg: "cu_sensor_payloads::CuImage<Vec<u8>>",
+        ),
+        (
+            src: "gst_to_image",
+            dst: "viz",
+            msg: "cu_sensor_payloads::CuImage<Vec<u8>>",
+        ),
+        (
+            src: "yolo",
+            dst: "viz",
+            msg: "payloads::CuPoses",
+        ),
+    ],
+    logging: (
+        keyframe_interval: 10000,
+        section_size_mib: 32,
+    ),
+    // CuConsoleMon shows its TUI only when stdin and stdout are a terminal
+    // (a manual run over `ssh -t`). Under systemd it does nothing.
+    monitors: [
+        (
+            type: "cu_logmon::CuLogMon",
+        ),
+        (
+            type: "cu_consolemon::CuConsoleMon",
+        ),
+    ],
+)
