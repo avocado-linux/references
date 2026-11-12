@@ -2,7 +2,7 @@ cli_requirement: ">=1.0.0"
 
 # Jetson Orin Nano 8GB devkit with the power mode and CPU/GPU frequency scaling that JetPack applies at boot.
 # The board support extension starts nvpmodel (25 W mode) and the idle-governors unit; avocado-ext-dev grows /var on the
-# first boot; avocado-ext-sshd-dev and avocado-ext-bringup give a way in on a board with nothing provisioned.
+# first boot; avocado-ext-sshd-dev and the dev permissions profile give a way in on a board with nothing provisioned.
 default_target: "jetson-orin-nano"
 supported_targets:
   - jetson-orin-nano
@@ -16,6 +16,29 @@ distro:
   channel: next
 
 ##
+## Images
+##
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password. Define a
+# profile with real users and hashed passwords before shipping anything, and
+# point rootfs/initramfs at it.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+##
 ## Runtimes
 ##
 
@@ -25,7 +48,6 @@ runtimes:
       - avocado-bsp-jetson-orin-nano
       - avocado-ext-dev
       - avocado-ext-sshd-dev
-      - avocado-ext-bringup
     packages:
       avocado-runtime: "*"
 
@@ -35,7 +57,6 @@ runtimes:
       - avocado-bsp-jetson-orin-nano
       - avocado-ext-dev
       - avocado-ext-sshd-dev
-      - avocado-ext-bringup
       - avocado-ext-trt
     packages:
       avocado-runtime: "*"
@@ -43,7 +64,7 @@ runtimes:
 ##
 ## Extensions
 ##
-## The first four come from the Avocado package feed and the fifth is a local path extension; there is nothing to compile.
+## Everything comes from the Avocado package feed; avocado-ext-trt only lists feed packages, so there is nothing to compile.
 ##
 
 extensions:
@@ -65,18 +86,22 @@ extensions:
       type: package
       version: "*"
 
-  # Bringup tools and a serial console that logs in as root. Development only.
-  avocado-ext-bringup:
-    source:
-      type: package
-      version: "*"
-
-  # trtexec and the TensorRT, cuDNN and cuBLAS libraries, from the feed. Used by the `trt` runtime only. The header of
-  # ext-trt/avocado.yaml lists the manual steps this replaces on a stock Ubuntu/JetPack install.
+  # trtexec at /usr/src/tensorrt/bin/trtexec, with the TensorRT, cuDNN and cuBLAS libraries from the feed. Used by the
+  # `trt` runtime only.
   avocado-ext-trt:
-    source:
-      type: path
-      path: ext-trt
+    types:
+      - sysext
+    version: "0.1.0"
+    summary: TensorRT trtexec for the Orin Nano
+    packages:
+      tensorrt-trtexec-prebuilt: "*"
+      # Owns libnvinfer_plugin.so.10 and libnvonnxparser.so.10. Without it trtexec stops with
+      # "Unable to open library: libnvinfer_plugin.so.10".
+      tensorrt-plugins-prebuilt: "*"
+      libnvinfer10: "*"
+      libnvinfer-builder-resource-ptx: "*"
+      cudnn: "*"
+      libcublas: "*"
 
 sdk:
   image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"

@@ -23,11 +23,11 @@ cd jetson-orin-nano-power
 
 ```bash
 avocado install -f
-avocado build
+avocado build -r power
 ```
 
-`avocado install` pulls the SDK and the extensions from the package feed. `avocado build` assembles the runtime
-`power`. There is no compile step.
+`avocado install` pulls the SDK and the extensions from the package feed. `avocado build -r power` assembles the runtime
+`power`; without `-r` the CLI builds every runtime, including `trt`. There is no compile step.
 
 ## Provision
 
@@ -56,18 +56,11 @@ retrieve chip ID`, because the container has no `/dev/bus/usb`.
 
 ## Get a shell
 
-A fresh board has no credentials: root is locked. The `avocado-ext-bringup` extension logs the serial console in as root, so
-open the debug console (115200 baud) and you land at a root prompt. Put your public key where `avocado-ext-sshd-dev` reads it:
+The `dev` permissions profile in `avocado.yaml` gives `root` an empty password. Log in as `root` on the debug console
+(115200 baud), or find the board's address on the console and connect over SSH through `avocado-ext-sshd-dev`:
 
 ```bash
-mkdir -p /var/lib/ssh
-echo 'ssh-ed25519 AAAA... you@host' >> /var/lib/ssh/authorized_keys
 ip -brief address
-```
-
-Then from the host:
-
-```bash
 ssh root@<device-ip>
 ```
 
@@ -109,11 +102,8 @@ The root filesystem is read-only, so keep models and engines under `/var`, for e
 building an engine and before you power-cycle the board: on the bench an engine written just before a power cycle came back
 as a 0-byte file, and `trtexec` failed with `read 0 out of 32 bytes`. The cause was not isolated.
 
-On a stock Ubuntu/JetPack install the same board needs the installer ISO, the UEFI menu, NVIDIA's first-boot setup on a
-second serial port, SSH enabled by hand and `apt-get install nvidia-jetpack` over the network. The header of
-`ext-trt/avocado.yaml` lists each of those steps.
-
 ## Development Mode
 
-The serial autologin in `avocado-ext-bringup` gives a root shell to anyone with access to the console. Remove the extension
-from `runtimes.power.extensions` and `runtimes.trt.extensions` in `avocado.yaml` before shipping.
+The `dev` permissions profile sets an empty root password, so anyone with the console or network access has a root shell.
+Replace it with a profile that has real users and hashed passwords, and point `rootfs` and `initramfs` at it, before
+shipping.
