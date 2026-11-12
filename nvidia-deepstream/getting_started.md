@@ -24,7 +24,7 @@ cd nvidia-deepstream
 To target Jetson AGX Orin instead of Orin Nano:
 
 ```bash
-avocado init --reference nvidia-deepstream --target jetson-agx-orin-devkit nvidia-deepstream
+avocado init --reference nvidia-deepstream --target jetson-agx-orin nvidia-deepstream
 cd nvidia-deepstream
 ```
 
@@ -71,8 +71,8 @@ TensorRT engines are pinned to GPU compute capability (sm_87 for both Orin Nano 
 
 ```
 prebuilt-engines/
-├── jetson-orin-nano-devkit/{peoplenet,movenet,handdet,handlandmark}/*.engine
-└── jetson-agx-orin-devkit/{...}/*.engine     # populate from an AGX Orin
+├── jetson-orin-nano/{peoplenet,movenet,handdet,handlandmark}/*.engine
+└── jetson-agx-orin/{...}/*.engine     # populate from an AGX Orin
 ```
 
 ### Regenerating engines
