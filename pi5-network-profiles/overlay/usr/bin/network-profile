@@ -1,0 +1,413 @@
+#!/bin/sh
+# network-profile: choose how a unit uses eth0, Wi-Fi and a cellular modem, from a
+# choice stored under /var, and apply it to systemd-networkd.
+#
+#   network-profile show
+#   network-profile set [--timeout SECONDS] [--confirmed] KEY=VALUE...
+#   network-profile confirm
+#   network-profile revert
+#   network-profile apply [--boot]
+#
+# Keys (any not given keep their current value):
+#   eth0_role=internet|local   internet: eth0 takes DHCP and carries traffic.
+#                              local: eth0 gets local_address, no DHCP, no gateway,
+#                              so it never carries the default route.
+#   priority=eth,wifi,modem    The order the three kinds of link carry traffic, best
+#                              first, as the route metrics 100, 200 and 300.
+#   local_address=A.B.C.D/N    Static address of eth0 when eth0_role=local.
+#
+# The choice lives in /var/lib/network-profile/choice. The networkd files it implies
+# are generated into /run/systemd/network on every boot, so nothing here depends on
+# a writable /etc and a wrong choice cannot outlive a reboot by being baked in.
+#
+# A change made with `set` is on trial. It is applied at once, and unless `confirm`
+# runs within the timeout (default 120 s) the unit goes back to the last confirmed
+# choice. A reboot before `confirm` has the same effect. This is what keeps a remote
+# unit reachable after a choice that cuts off the link carrying the session.
+
+set -eu
+
+STATE_DIR="${NETWORK_PROFILE_STATE_DIR:-/var/lib/network-profile}"
+RUN_DIR="${NETWORK_PROFILE_RUN_DIR:-/run/systemd/network}"
+CHOICE="$STATE_DIR/choice"
+LAST_GOOD="$STATE_DIR/last-good"
+UNCONFIRMED="$STATE_DIR/unconfirmed"
+REVERT_UNIT=network-profile-revert
+DEFAULT_TIMEOUT=120
+
+DEFAULT_ROLE=internet
+DEFAULT_PRIORITY=eth,wifi,modem
+DEFAULT_ADDRESS=172.168.1.123/24
+
+say() { echo "network-profile: $*"; }
+die() { echo "network-profile: $*" >&2; exit 2; }
+
+# Check one key and value. Prints the reason and fails when the value is not usable.
+check_value() {
+    case "$1" in
+        eth0_role)
+            case "$2" in internet | local) return 0 ;; esac
+            echo "eth0_role must be internet or local, not '$2'" >&2
+            return 1
+            ;;
+        priority)
+            # Exactly eth, wifi and modem, each once, comma separated.
+            case "$2" in
+                eth,wifi,modem | eth,modem,wifi | wifi,eth,modem | wifi,modem,eth | modem,eth,wifi | modem,wifi,eth)
+                    return 0
+                    ;;
+            esac
+            echo "priority must list eth, wifi and modem once each, comma separated, not '$2'" >&2
+            return 1
+            ;;
+        local_address)
+            addr="${2%/*}"
+            prefix="${2#*/}"
+            [ "$addr" != "$2" ] || {
+                echo "local_address must look like 172.168.1.123/24, not '$2'" >&2
+                return 1
+            }
+            case "$prefix" in '' | *[!0-9]*)
+                echo "local_address prefix must be a number, not '$prefix'" >&2
+                return 1
+                ;;
+            esac
+            [ "$prefix" -ge 1 ] && [ "$prefix" -le 32 ] || {
+                echo "local_address prefix must be 1 to 32, not '$prefix'" >&2
+                return 1
+            }
+            old_ifs="$IFS"
+            IFS=.
+            # shellcheck disable=SC2086
+            set -- $addr
+            IFS="$old_ifs"
+            [ "$#" -eq 4 ] || {
+                echo "local_address must have four octets, not '$addr'" >&2
+                return 1
+            }
+            for octet in "$@"; do
+                case "$octet" in '' | *[!0-9]*)
+                    echo "local_address octet '$octet' is not a number" >&2
+                    return 1
+                    ;;
+                esac
+                [ "$octet" -le 255 ] || {
+                    echo "local_address octet '$octet' is above 255" >&2
+                    return 1
+                }
+            done
+            return 0
+            ;;
+        *)
+            echo "unknown key '$1' (use eth0_role, priority or local_address)" >&2
+            return 1
+            ;;
+    esac
+}
+
+# Read a choice file into the three settings. Fails on any unknown key or bad value, with
+# the settings left at their defaults, so a damaged file is never half applied.
+load_file() {
+    role=$DEFAULT_ROLE
+    priority=$DEFAULT_PRIORITY
+    address=$DEFAULT_ADDRESS
+    [ -f "$1" ] || return 0
+    new_role=$role
+    new_priority=$priority
+    new_address=$address
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in '' | '#'*) continue ;; esac
+        key="${line%%=*}"
+        value="${line#*=}"
+        [ "$key" != "$line" ] || {
+            echo "line without '=' in $1: $line" >&2
+            return 1
+        }
+        check_value "$key" "$value" || return 1
+        case "$key" in
+            eth0_role) new_role=$value ;;
+            priority) new_priority=$value ;;
+            local_address) new_address=$value ;;
+        esac
+    done <"$1"
+    role=$new_role
+    priority=$new_priority
+    address=$new_address
+}
+
+write_choice() { # <path>
+    tmp="$1.tmp.$$"
+    {
+        echo "eth0_role=$role"
+        echo "priority=$priority"
+        echo "local_address=$address"
+    } >"$tmp"
+    mv -f "$tmp" "$1"
+}
+
+# The route metric of a kind of link: its position in the priority list times 100.
+metric_of() { # <eth|wifi|modem>
+    rank=1
+    old_ifs="$IFS"
+    IFS=,
+    for kind in $priority; do
+        if [ "$kind" = "$1" ]; then
+            IFS="$old_ifs"
+            echo $((rank * 100))
+            return 0
+        fi
+        rank=$((rank + 1))
+    done
+    IFS="$old_ifs"
+    return 1
+}
+
+# Generate the networkd files for the current settings into RUN_DIR. The 10- prefix
+# sorts them ahead of the stock 80-wired.network, which matches every Ethernet-type
+# link (a USB modem included) and would otherwise give it the lowest metric.
+render() {
+    mkdir -p "$RUN_DIR"
+    eth_metric=$(metric_of eth)
+    wifi_metric=$(metric_of wifi)
+    modem_metric=$(metric_of modem)
+    rm -f "$RUN_DIR"/10-np-*.network
+
+    if [ "$role" = internet ]; then
+        cat >"$RUN_DIR/10-np-eth0.network" <<EOF
+# Generated by network-profile. Do not edit; change the choice instead.
+[Match]
+Name=eth0
+
+[Network]
+DHCP=ipv4
+
+[DHCPv4]
+RouteMetric=$eth_metric
+EOF
+    else
+        cat >"$RUN_DIR/10-np-eth0.network" <<EOF
+# Generated by network-profile. Do not edit; change the choice instead.
+# eth0 only carries the local sensor network: a fixed address, no DHCP client and
+# no gateway, so nothing the network offers is applied and no default route is set.
+[Match]
+Name=eth0
+
+[Network]
+Address=$address
+DHCP=no
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+DNSDefaultRoute=no
+
+[Link]
+# This link is not a way to the internet, so a unit does not wait for it at boot.
+RequiredForOnline=no
+EOF
+    fi
+
+    cat >"$RUN_DIR/10-np-usb-ethernet.network" <<EOF
+# Generated by network-profile. A USB Ethernet adapter is an internet link at the
+# Ethernet metric. The udev rule that sets AVOCADO_USB_NIC leaves modems out, so an
+# ECM modem that shares the adapter's kernel driver does not match here.
+[Match]
+Property=AVOCADO_USB_NIC=1
+
+[Network]
+DHCP=ipv4
+
+[DHCPv4]
+RouteMetric=$eth_metric
+EOF
+
+    cat >"$RUN_DIR/10-np-wlan0.network" <<EOF
+# Generated by network-profile.
+[Match]
+Name=wlan0
+
+[Network]
+DHCP=ipv4
+
+[DHCPv4]
+RouteMetric=$wifi_metric
+EOF
+
+    cat >"$RUN_DIR/10-np-cellular.network" <<EOF
+# Generated by network-profile. usb0 is an ECM, NCM or RNDIS modem, wwan0 a QMI or MBIM one.
+[Match]
+Name=usb0 wwan0
+
+[Network]
+DHCP=ipv4
+
+[DHCPv4]
+RouteMetric=$modem_metric
+
+[Link]
+# A modem may be absent or slow to register, and must not hold the boot.
+RequiredForOnline=no
+EOF
+}
+
+# Ask networkd to read the generated files and apply them to every link it manages.
+reload_networkd() {
+    [ -z "${NETWORK_PROFILE_NO_RELOAD:-}" ] || return 0
+    networkctl reload
+    networkctl list --no-legend --no-pager | while read -r _ name type _; do
+        case "$type" in ether | wlan | wwan) networkctl reconfigure "$name" || true ;; esac
+    done
+}
+
+# Only the timer is stopped. When the timer fires, `revert` itself runs as the timer's service,
+# and stopping that service from inside it would kill the revert halfway.
+stop_revert_timer() {
+    [ -z "${NETWORK_PROFILE_NO_RELOAD:-}" ] || return 0
+    systemctl stop "$REVERT_UNIT.timer" 2>/dev/null || true
+}
+
+# Settings in force: the choice when it reads cleanly, the defaults when it does not.
+load_effective() {
+    if load_file "$CHOICE" 2>/dev/null; then
+        return 0
+    fi
+    say "the stored choice is not usable, using the defaults:"
+    load_file "$CHOICE" 2>&1 >/dev/null | sed 's/^/network-profile:   /' || true
+    role=$DEFAULT_ROLE
+    priority=$DEFAULT_PRIORITY
+    address=$DEFAULT_ADDRESS
+}
+
+# Put the last confirmed choice back, or the defaults when nothing was ever confirmed.
+restore_last_good() {
+    if [ -f "$LAST_GOOD" ]; then
+        cp -f "$LAST_GOOD" "$CHOICE"
+    else
+        rm -f "$CHOICE"
+    fi
+    rm -f "$UNCONFIRMED"
+}
+
+cmd_apply() {
+    mkdir -p "$STATE_DIR"
+    if [ "${1:-}" = --boot ] && [ -e "$UNCONFIRMED" ]; then
+        say "the unit rebooted before the last change was confirmed; going back to the last confirmed choice"
+        restore_last_good
+    fi
+    load_effective
+    render
+    reload_networkd
+    say "applied eth0_role=$role priority=$priority local_address=$address"
+}
+
+cmd_set() {
+    timeout=$DEFAULT_TIMEOUT
+    confirmed=no
+    mkdir -p "$STATE_DIR"
+    load_effective
+    changes=
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            --timeout)
+                [ "$#" -ge 2 ] || die "--timeout needs a number of seconds"
+                timeout="$2"
+                shift 2
+                ;;
+            --confirmed)
+                confirmed=yes
+                shift
+                ;;
+            *=*)
+                check_value "${1%%=*}" "${1#*=}" || exit 2
+                changes="$changes $1"
+                shift
+                ;;
+            *) die "unexpected argument '$1' (a setting looks like eth0_role=local)" ;;
+        esac
+    done
+    [ -n "$changes" ] || die "nothing to set"
+    case "$timeout" in '' | *[!0-9]*) die "--timeout must be a number of seconds, not '$timeout'" ;; esac
+    [ "$timeout" -ge 10 ] || die "--timeout must be at least 10 seconds"
+
+    # Keep the settings in force as the fallback before touching them, unless one is already on file.
+    if [ "$confirmed" = no ] && [ ! -f "$LAST_GOOD" ]; then
+        write_choice "$LAST_GOOD"
+    fi
+    for change in $changes; do
+        case "${change%%=*}" in
+            eth0_role) role="${change#*=}" ;;
+            priority) priority="${change#*=}" ;;
+            local_address) address="${change#*=}" ;;
+        esac
+    done
+    write_choice "$CHOICE"
+
+    stop_revert_timer
+    if [ "$confirmed" = yes ]; then
+        cp -f "$CHOICE" "$LAST_GOOD"
+        rm -f "$UNCONFIRMED"
+    else
+        date +%s >"$UNCONFIRMED"
+    fi
+    cmd_apply
+    if [ "$confirmed" = no ]; then
+        if [ -z "${NETWORK_PROFILE_NO_RELOAD:-}" ]; then
+            systemd-run --quiet --unit="$REVERT_UNIT" --on-active="${timeout}s" \
+                /usr/bin/network-profile revert
+        fi
+        say "on trial for ${timeout} s: run 'network-profile confirm' before then, or the unit goes back"
+    fi
+}
+
+cmd_confirm() {
+    [ -e "$UNCONFIRMED" ] || {
+        say "nothing to confirm"
+        return 0
+    }
+    cp -f "$CHOICE" "$LAST_GOOD"
+    rm -f "$UNCONFIRMED"
+    stop_revert_timer
+    say "confirmed; this choice now survives a reboot"
+}
+
+cmd_revert() {
+    [ -e "$UNCONFIRMED" ] || {
+        say "nothing on trial"
+        return 0
+    }
+    say "the change was not confirmed in time; going back to the last confirmed choice"
+    restore_last_good
+    stop_revert_timer
+    cmd_apply
+}
+
+cmd_show() {
+    load_effective
+    echo "eth0_role=$role"
+    echo "priority=$priority"
+    echo "local_address=$address"
+    echo "metrics: eth=$(metric_of eth) wifi=$(metric_of wifi) modem=$(metric_of modem)"
+    if [ -e "$UNCONFIRMED" ]; then
+        echo "state: on trial since $(cat "$UNCONFIRMED") (epoch), not yet confirmed"
+    elif [ -f "$CHOICE" ]; then
+        echo "state: confirmed"
+    else
+        echo "state: no choice stored, defaults in force"
+    fi
+    if command -v ip >/dev/null 2>&1; then
+        echo "default routes:"
+        ip -4 route show default | sed 's/^/  /'
+    fi
+}
+
+command="${1:-}"
+[ "$#" -eq 0 ] || shift
+case "$command" in
+    show) cmd_show ;;
+    set) cmd_set "$@" ;;
+    confirm) cmd_confirm ;;
+    revert) cmd_revert ;;
+    apply) cmd_apply "$@" ;;
+    *)
+        echo "usage: network-profile show | set [--timeout SECONDS] [--confirmed] KEY=VALUE... | confirm | revert | apply [--boot]" >&2
+        exit 2
+        ;;
+esac
