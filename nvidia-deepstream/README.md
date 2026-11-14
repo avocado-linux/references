@@ -3,6 +3,7 @@ language: Python
 targets:
   - jetson-orin-nano
   - jetson-agx-orin
+  - jetson-agx-thor
 topics:
   - deepstream
   - vision
