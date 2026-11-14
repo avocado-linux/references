@@ -31,11 +31,11 @@ on:
   workflow_dispatch:
     inputs:
       refs:
-        description: Space-separated reference dirs to build (empty = all)
+        description: Reference dirs to build, space or comma separated (empty = all)
         type: string
         default: ""
       targets:
-        description: Space-separated targets, or "all" for each reference's supported_targets (empty = default target)
+        description: Targets, space or comma separated, or "all" for each reference's supported_targets (empty = default target)
         type: string
         default: ""
   schedule:
@@ -95,12 +95,15 @@ jobs:
               ;;
           esac
           REFS="$out" python3 - <<'EOF'
-          import json, os, yaml
+          import json, os, re, yaml
 
-          # dict.fromkeys drops repeats, which would collide on artifact names.
-          requested = list(dict.fromkeys(os.environ.get("INPUT_TARGETS", "").split()))
+          def words(v):
+              return list(dict.fromkeys(w for w in re.split(r"[\s,]+", v) if w))
+
+          # words() drops repeats, which would collide on artifact names.
+          requested = words(os.environ.get("INPUT_TARGETS", ""))
           pairs = []
-          for ref in dict.fromkeys(os.environ["REFS"].split()):
+          for ref in words(os.environ["REFS"]):
               try:
                   y = yaml.safe_load(open(f"{ref}/avocado.yaml")) or {}
               except Exception as e:
@@ -131,6 +134,10 @@ jobs:
 
           out = json.dumps(pairs)
           print(f"pairs to build: {out}")
+          # A manual run that builds nothing is a mistake in the inputs, not a pass.
+          if not pairs and os.environ["EVENT"] == "workflow_dispatch":
+              print("::error title=nothing to build::no ref/target pair matched the inputs")
+              raise SystemExit(1)
           with open(os.environ["GITHUB_OUTPUT"], "a") as f:
               f.write(f"pairs={out}\n")
           EOF
