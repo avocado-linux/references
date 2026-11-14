@@ -1,0 +1,4 @@
+.avocado/
+.avocado-state
+avocado.lock
+.DS_Store
