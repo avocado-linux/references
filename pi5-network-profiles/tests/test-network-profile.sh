@@ -36,7 +36,7 @@ has() { grep -qxF -- "$2" "$1"; }
 lacks() { ! grep -qF -- "$2" "$1"; }
 metric() { sed -n 's/^RouteMetric=//p' "$1"; }
 eth0="$work/run/10-np-eth0.network"
-usb="$work/run/10-np-usb-ethernet.network"
+usb="$work/run/10-np-a-usb-ethernet.network"
 wlan="$work/run/10-np-wlan0.network"
 cell="$work/run/10-np-cellular.network"
 
@@ -142,6 +142,35 @@ out="$(np apply --boot 2>&1)"
 check "a damaged choice file falls back to the defaults" has "$eth0" "DHCP=ipv4"
 check "a damaged choice file is reported" bash -c "[[ '$out' == *'not usable'* ]]"
 check "a damaged choice file is kept for inspection" grep -qx 'priority=bogus' "$work/state/choice"
+
+# The cellular file matches every modem interface index, and a USB Ethernet adapter that the kernel
+# names usb0 reaches its own file first, because networkd uses the first matching file.
+reset
+np apply >/dev/null
+check "the cellular file matches usb and wwan with any index" has "$cell" "Name=usb* wwan*"
+check "a marked adapter file sorts ahead of the cellular file, which also matches usb0" bash -c "[[ '$(basename "$usb")' < '$(basename "$cell")' ]]"
+
+# A closed output pipe must not stop the revert timer from being armed: the timer is created
+# before networking is touched, so SIGPIPE on a later print cannot leave a change with no way back.
+reset
+stubs="$work/stubs"
+mkdir -p "$stubs"
+for cmd in networkctl systemctl; do printf '#!/bin/sh\nexit 0\n' >"$stubs/$cmd"; done
+printf '#!/bin/sh\necho "$*" >>"%s/systemd-run.log"\nexit 0\n' "$work" >"$stubs/systemd-run"
+chmod +x "$stubs"/*
+np set --confirmed priority=eth,wifi,modem >/dev/null
+(env -u NETWORK_PROFILE_NO_RELOAD PATH="$stubs:$PATH" "$tool" set eth0_role=local 2>&1 | (exec 0<&-)) || true
+check "with the output pipe closed the revert timer is still created" grep -q -- "--unit=network-profile-revert" "$work/systemd-run.log"
+check "with the output pipe closed the change is on trial" test -e "$work/state/unconfirmed"
+
+# A timer that cannot be created aborts the change before networking is touched.
+reset
+np set --confirmed priority=eth,wifi,modem >/dev/null
+printf '#!/bin/sh\nexit 1\n' >"$stubs/systemd-run"
+if env -u NETWORK_PROFILE_NO_RELOAD PATH="$stubs:$PATH" "$tool" set eth0_role=local >/dev/null 2>&1; then bad "a failed timer was accepted"; else ok "a failed timer aborts the change"; fi
+check "a failed timer leaves eth0 as it was" has "$eth0" "DHCP=ipv4"
+check "a failed timer leaves nothing on trial" test ! -e "$work/state/unconfirmed"
+check "a failed timer keeps the confirmed choice" grep -qx 'eth0_role=internet' "$work/state/choice"
 
 echo
 echo "passed: $pass  failed: $fail"

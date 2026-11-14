@@ -3,6 +3,8 @@
 Build the runtime, deploy it to a Raspberry Pi 5, then choose a profile on the unit.
 
 ```bash
+avocado init --reference pi5-network-profiles pi5-network-profiles
+cd pi5-network-profiles
 avocado install -f
 avocado build
 avocado deploy dev -d root@<unit-address>
@@ -101,7 +103,7 @@ No `Gateway=`, no DHCP client and no route metric, so nothing the sensor network
 
 ## A USB Ethernet adapter
 
-A USB Ethernet adapter becomes an internet link at the Ethernet metric without naming its interface. `90-network-profile-usb-nic.rules` sets `AVOCADO_USB_NIC=1` on an Ethernet-type link that comes from USB, and clears it for these USB vendors, which are cellular modems: 3838 (Eagle), 2c7c (Quectel), 1bc7 (Telit), 1199 (Sierra Wireless), 05c6, 12d1 (Huawei), 19d2 (ZTE) and 1e0e (Simcom). A modem that shares the adapter's kernel driver (`cdc_ether`, `cdc_ncm`) therefore does not get the adapter's profile. The generated `10-np-usb-ethernet.network` matches `Property=AVOCADO_USB_NIC=1`.
+A USB Ethernet adapter becomes an internet link at the Ethernet metric without naming its interface. `90-network-profile-usb-nic.rules` sets `AVOCADO_USB_NIC=1` on an Ethernet-type link that comes from USB, and clears it for these USB vendors, which are cellular modems: 3838 (Eagle), 2c7c (Quectel), 1bc7 (Telit), 1199 (Sierra Wireless), 05c6, 12d1 (Huawei), 19d2 (ZTE) and 1e0e (Simcom). A modem that shares the adapter's kernel driver (`cdc_ether`, `cdc_ncm`) therefore does not get the adapter's profile. The generated `10-np-a-usb-ethernet.network` matches `Property=AVOCADO_USB_NIC=1`.
 
 Add a vendor to the list in that rules file when a modem you use is not on it.
 

@@ -183,7 +183,7 @@ udevadm control --reload
 mklink ugnic0 ugnic0p 2
 udevadm settle
 waitfor has_default_via ugnic0
-check "the adapter matched the USB Ethernet file" file_is ugnic0 10-np-usb-ethernet.network
+check "the adapter matched the USB Ethernet file" file_is ugnic0 10-np-a-usb-ethernet.network
 check "the adapter gets metric 100" metric_is ugnic0 100
 check "the modem keeps metric 300 beside it" metric_is usb0 300
 check "eth0 keeps metric 100" metric_is eth0 100
