@@ -1,13 +1,13 @@
 # <img src="icon.png" width="32" height="32" style="vertical-align: middle;" /> Getting Started with NVIDIA DeepStream
 
-Run DeepStream 9.1 natively on a Jetson Orin Nano (or AGX Orin) — no containers. A USB camera is fed through a GStreamer pipeline that detects people with PeopleNet, tracks them across frames with NvDCF, runs MoveNet (secondary GIE) to extract a 17-point COCO skeleton per person, runs YOLOX-Body-Head-Hand (second primary GIE) on the full frame to find hands, runs MediaPipe Hand Landmark (tertiary GIE) on each hand crop to regress 21 finger keypoints, and applies `nvdsanalytics` for ROI entry counters and dwell-time tracking. Bounding boxes, skeletons, hand keypoints, and zone overlays are rasterised by `nvdsosd` directly into the JPEG stream; the dashboard at `:8080` serves the resulting MJPEG plus a JSON stats endpoint.
+Run DeepStream 9.1 natively on a Jetson Orin Nano (or AGX Orin or AGX Thor) — no containers. A USB camera is fed through a GStreamer pipeline that detects people with PeopleNet, tracks them across frames with NvDCF, runs MoveNet (secondary GIE) to extract a 17-point COCO skeleton per person, runs YOLOX-Body-Head-Hand (second primary GIE) on the full frame to find hands, runs MediaPipe Hand Landmark (tertiary GIE) on each hand crop to regress 21 finger keypoints, and applies `nvdsanalytics` for ROI entry counters and dwell-time tracking. Bounding boxes, skeletons, hand keypoints, and zone overlays are rasterised by `nvdsosd` directly into the JPEG stream; the dashboard at `:8080` serves the resulting MJPEG plus a JSON stats endpoint.
 
 ## Prerequisites
 
 - macOS 10.12+ or Linux (Ubuntu 22.04+, Fedora 39+) on the build machine
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) or a working local Docker daemon (the Avocado SDK runs in a container)
 - The latest [Avocado CLI](https://docs.peridio.com/guides/avocado-cli/overview)
-- A Jetson Orin Nano DevKit or Jetson AGX Orin DevKit
+- A Jetson Orin Nano DevKit, Jetson AGX Orin DevKit, or Jetson AGX Thor DevKit
 - A USB C cable
 - A UART to USB adapter
 - A USB camera (UVC-compatible MJPEG, e.g. Logitech C920 / C270)
@@ -24,7 +24,7 @@ cd nvidia-deepstream
 To target Jetson AGX Orin instead of Orin Nano:
 
 ```bash
-avocado init --reference nvidia-deepstream --target jetson-agx-orin-devkit nvidia-deepstream
+avocado init --reference nvidia-deepstream --target jetson-agx-orin nvidia-deepstream
 cd nvidia-deepstream
 ```
 
@@ -63,7 +63,7 @@ Follow the USB recovery-mode prompts. Plug in your USB camera before or after bo
 
 The reference ships **prebuilt TensorRT FP16 `.engine` files** for the supported targets under `prebuilt-engines/<target>/<model>/`. `engines-compile.sh` stages the engines for the current build target into the `vision-engines` extension at `/usr/lib/nvidia-deepstream/engines/<model>/`, and the nvinfer configs point straight at that read-only path. At service start nvinfer memory-maps the engine and the pipeline reaches PLAYING in ~10–15 s. There is **no on-device compile and no `/var` staging** — the engine is loaded, dm-verity-verified, directly from the extension.
 
-Because there is no on-device compile path (nowhere writable to build into on an immutable OS), **every supported target must ship a prebuilt engine for every model**. `engines-compile.sh` fails the build if an engine is missing for the target rather than silently producing an image that can't start. To add a target, build and commit its engines first — see [Regenerating engines](#regenerating-engines).
+Because there is no on-device compile path (nowhere writable to build into on an immutable OS), **every supported target must ship a prebuilt engine for every model**. `engines-compile.sh` warns and exits 0 when an engine is missing for the target (so new-board bring-up can still build), and `vision-app` won't start until all four engines are present. To add a target, build and commit its engines first — see [Regenerating engines](#regenerating-engines).
 
 ### Why per-target engines?
 
@@ -71,8 +71,9 @@ TensorRT engines are pinned to GPU compute capability (sm_87 for both Orin Nano 
 
 ```
 prebuilt-engines/
-├── jetson-orin-nano-devkit/{peoplenet,movenet,handdet,handlandmark}/*.engine
-└── jetson-agx-orin-devkit/{...}/*.engine     # populate from an AGX Orin
+├── jetson-orin-nano/{peoplenet,movenet,handdet,handlandmark}/*.engine
+├── jetson-agx-orin/{...}/*.engine     # populate from an AGX Orin
+└── jetson-agx-thor/{peoplenet,movenet,handdet,handlandmark}/*.engine
 ```
 
 ### Regenerating engines
