@@ -7,7 +7,7 @@
 # A TensorRT engine is the compiled form of a model's ONNX, pinned to the
 # GPU's compute capability + SM count + memory hierarchy + TRT/CUDA version.
 # It is therefore target-specific — engines committed under
-# `prebuilt-engines/jetson-orin-nano-devkit/` will not necessarily run on an
+# `prebuilt-engines/jetson-orin-nano/` will not necessarily run on an
 # AGX Orin and vice versa. Each Avocado build targets a single board, so this
 # hook stages only `prebuilt-engines/$AVOCADO_TARGET/`; the resulting
 # vision-engines extension always contains exactly the right engines for the
@@ -29,7 +29,7 @@
 
 set -euo pipefail
 
-TARGET="${AVOCADO_TARGET:-jetson-orin-nano-devkit}"
+TARGET="${AVOCADO_TARGET:-jetson-orin-nano}"
 ENGINE_SRC_BASE="prebuilt-engines/${TARGET}"
 ENGINE_DST_BASE="vision-engines/overlay/usr/lib/nvidia-deepstream/engines"
 
