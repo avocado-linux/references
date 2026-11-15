@@ -1,0 +1,17 @@
+[Unit]
+Description=Apply the stored network profile to systemd-networkd
+# networkd starts before the extension merge, so on a cold boot it has not read any file
+# this extension provides. This unit exists only after the merge. It generates the networkd
+# files from the stored choice and asks networkd to read them, and it runs before the wait
+# for the network so that wait sees the final configuration, not the stock one.
+After=systemd-networkd.service
+Wants=systemd-networkd.service
+Before=systemd-networkd-wait-online.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/network-profile apply --boot
+
+[Install]
+WantedBy=multi-user.target
