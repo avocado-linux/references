@@ -58,7 +58,8 @@ pub fn process_predictions(
         };
 
         let confidence = pred_vec[4];
-        if confidence < conf_threshold {
+        // A NaN fails every comparison, so test for it on its own.
+        if confidence.is_nan() || confidence < conf_threshold {
             continue;
         }
 
