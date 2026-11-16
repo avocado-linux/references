@@ -5,9 +5,9 @@ targets:
   - raspberrypi4
   - reterminal
   - reterminal-dm
-  - icam-540
-  - jetson-orin-nano-devkit
-  - jetson-agx-orin-devkit
+  - jetson-orin-nano
+  - jetson-agx-orin
+  - jetson-orin-nx
 topics:
   - ui
   - web

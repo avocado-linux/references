@@ -1,4 +1,4 @@
-cli_requirement: ">=0.41.0"
+cli_requirement: ">=1.1.0"
 
 default_target: "imx95-frdm"
 
@@ -10,7 +10,6 @@ supported_targets:
   - imx95-frdm
   - raspberrypi5
   - rzv2n-sr-som
-  - stm32mp257f-dk
   - rubikpi3
   - grinn-astra-1680-sbc
 
@@ -19,8 +18,13 @@ supported_targets:
 ##
 
 distro:
-  release: 2024
-  channel: next
+  release: 2026
+  channel: edge
+  # Boards with no 2026 feed stay on 2024 (target-<name> overrides).
+  target-rzv2n-sr-som:
+    release: 2024
+  target-grinn-astra-1680-sbc:
+    release: 2024
 
 ##
 ## Runtimes

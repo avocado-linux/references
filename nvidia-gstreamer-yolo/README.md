@@ -1,8 +1,8 @@
 ---
 language: Python
 targets:
-  - jetson-orin-nano-devkit
-  - jetson-agx-orin-devkit
+  - jetson-orin-nano
+  - jetson-agx-orin
 topics:
   - vision
   - ai

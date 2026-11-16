@@ -98,7 +98,6 @@ extensions:
       deepstream-9.1-pyds: "*"
 
       # Inference backend (DeepStream's nvinfer wraps this)
-      tensorrt-core: "*"
       tensorrt-trtexec-prebuilt: "*"
 
       # PVA — the NvDCF tracker's VPI feature extractor loads

@@ -23,7 +23,7 @@ avocado init --reference webkit-ui --target raspberrypi5 webkit-ui
 cd webkit-ui
 ```
 
-Replace `raspberrypi5` with your target (e.g., `jetson-orin-nano-devkit`, `reterminal`, `icam-540`).
+Replace `raspberrypi5` with your target (e.g., `raspberrypi4`, `jetson-orin-nano`, `jetson-orin-nx`).
 
 ## Install
 

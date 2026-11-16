@@ -11,14 +11,14 @@ supported_targets:
   - imx91-frdm
   - imx93-frdm
   - imx93-evk
-  - jetson-orin-nano-devkit
+  - jetson-orin-nano
 
 ##
 ## Distribution
 ##
 
 distro:
-  release: 2024
+  release: 2026
   channel: edge
 
 ##

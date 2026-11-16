@@ -18,7 +18,7 @@ JetPack 7) release.
   integrated Tegra GPU stack (nvgpu, `nvidia.ko`, tegra-dce, tsecriscv,
   `libcuda`, `tegra-libraries-cuda`) and the GSP firmware.
 - **Feed packages must resolve** for the target:
-  - native runtime → `python3-tensorrt` + `tensorrt-core` + `cuda-cudart` +
+  - native runtime → `python3-tensorrt` (pulls in `libnvinfer10`) + `cuda-cudart` +
     `cuda-libraries`. **On a brand-new SoC (e.g. Thor/tegra264) confirm TensorRT
     is published in the 2026 feed for that arch** — it is proven for Orin
     (tegra234); if it is not yet built for tegra264, the native runtime install
