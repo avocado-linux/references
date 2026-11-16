@@ -50,6 +50,9 @@ fn keep_previous_log() -> std::io::Result<()> {
     if !Path::new(RUN_MARKER).exists() {
         return Ok(());
     }
+    // Remove the marker first. Then each long run allows one rotation, also
+    // when it left no slabs (the user deleted them) or a rename fails.
+    fs::remove_file(RUN_MARKER)?;
 
     let slabs: Vec<_> = fs::read_dir(LOG_DIR)?
         .filter_map(|entry| entry.ok())
@@ -74,7 +77,7 @@ fn keep_previous_log() -> std::io::Result<()> {
             fs::rename(&slab, previous.join(name))?;
         }
     }
-    fs::remove_file(RUN_MARKER)
+    Ok(())
 }
 
 fn main() -> ExitCode {
