@@ -125,7 +125,11 @@ Log in as `root` with an empty password. The service starts automatically at boo
    ls -lh /var/lib/copper-rs-pose/
    ```
 
-   The directory has `human-pose_0.copper`. When a log file is full (256 MB), copper-rs starts `human-pose_1.copper`, then `human-pose_2.copper`, and more. copper-rs does not delete old files. Delete them when you need disk space.
+   The directory has `human-pose_0.copper`. When a log file is full (256 MB), copper-rs starts `human-pose_1.copper`, then `human-pose_2.copper`, and more.
+
+   When the app starts, it moves the files of the last run into `previous/`, and deletes the files that were in `previous/`. Thus, after a restart, the log of the run that stopped is in `previous/`. A manual run does the same to the log of the service.
+
+   During one run, copper-rs does not delete old files. The log grows each day that the app runs. Delete the files when you need disk space. For a device that runs for weeks, set `enable_task_logging: false` in the `logging` section of `app/copperconfig.ron`.
 
 4. Get the IP address of the device:
 
@@ -177,7 +181,7 @@ The width and height are in three places in `app/copperconfig.ron`. The three va
 - The `caps` string of the `camera` task
 - The `width` and `height` of the `gst_to_image` task
 
-Use a width and a height that are multiples of 16, for example 640x352 or 1280x720. With other values, GStreamer can add padding bytes to each row. The app reads the frame as rows with no padding, so the image and the poses are not correct.
+Use a width that is a multiple of 4 and an even height, for example 640x360 or 1280x720. With other values, GStreamer adds padding bytes to the NV12 frame. The app reads the frame with no padding, so the image and the poses are not correct.
 
 ### Use a different camera
 

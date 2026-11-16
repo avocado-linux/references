@@ -14,7 +14,7 @@ pub const MODEL_INPUT_SIZE: usize = 640;
 ///
 /// Steps:
 /// 1. Convert from camera format (YUYV/NV12) to RGB
-/// 2. Resize to model input size with letterboxing
+/// 2. Resize so that the long side is the model input size (no letterbox padding)
 /// 3. Normalize to [0, 1] range
 /// 4. Convert to tensor with shape (1, 3, H, W)
 ///
@@ -49,7 +49,8 @@ pub fn preprocess_image(
         }
     });
 
-    // Calculate resize dimensions maintaining aspect ratio
+    // The short side is rounded down to a multiple of 32, so the image is
+    // stretched a little (640x360 becomes 640x352). postprocess.rs scales back.
     let (target_w, target_h) = calculate_resize_dims(width, height, MODEL_INPUT_SIZE);
 
     // Resize the image
@@ -67,8 +68,8 @@ pub fn preprocess_image(
     Ok((tensor, target_w, target_h))
 }
 
-/// Calculate resize dimensions to fit within target size while maintaining aspect ratio
-/// Dimensions are rounded down to multiples of 32 for YOLO compatibility
+/// Calculate resize dimensions: the long side becomes `target`, and the short side
+/// keeps the aspect ratio, rounded down to a multiple of 32 for YOLO
 fn calculate_resize_dims(width: usize, height: usize, target: usize) -> (usize, usize) {
     if width > height {
         let new_h = (height * target) / width;

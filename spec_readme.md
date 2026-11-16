@@ -45,6 +45,7 @@ The following target identifiers are recognized. Use these exact strings in the 
 | `imx8mp-evk` | NXP i.MX 8MP EVK |
 | `imx93-evk` | NXP i.MX 93 EVK |
 | `imx93-frdm` | NXP i.MX 93 FRDM SBC |
+| `imx95-frdm` | NXP FRDM i.MX 95 |
 | `fr201` | OnLogic FR201 |
 | `raspberrypi4` | Raspberry Pi 4 Model B |
 | `raspberrypi5` | Raspberry Pi 5 |
@@ -59,6 +60,7 @@ The following target identifiers are recognized. Use these exact strings in the 
 | `jetson-agx-thor` | NVIDIA Jetson AGX Thor |
 | `jetson-orin-nano` | NVIDIA Jetson Orin Nano |
 | `rubikpi3` | Qualcomm RUBIK Pi 3 |
+| `rb3gen2` | Qualcomm RB3 Gen 2 |
 | `rzv2n-sr-som` | Renesas RZ/V2N SR SoM |
 | `ucm-imx8m-plus` | CompuLab UCM-iMX8M-Plus |
 
