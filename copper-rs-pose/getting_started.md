@@ -131,7 +131,7 @@ Log in as `root` with an empty password. The service starts automatically at boo
 
    The app moves the files only if the last run lasted 30 seconds or more. If the app cannot start (for example, with no camera), systemd restarts it every 5 seconds. These short runs do not replace the log in `previous/`.
 
-   During one run, copper-rs does not delete old files. The log grows each day that the app runs. Delete the files when you need disk space. For a device that runs for weeks, set `enable_task_logging: false` in the `logging` section of `app/copperconfig.ron`.
+   During one run, copper-rs does not delete old files. The log grows each day that the app runs. Delete the files when you need disk space. For a device that runs for weeks, set `enable_task_logging: false` in the `logging` section of `app/copperconfig.ron`. This stops the record of each frame. The `CuLogMon` monitor still writes one status line each second into the same files. To stop these lines too, remove `cu_logmon::CuLogMon` from `monitors` in the same file.
 
 4. Get the IP address of the device:
 
