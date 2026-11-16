@@ -53,7 +53,7 @@ pub fn process_predictions(
             continue;
         };
 
-        let Ok(pred_vec) = pred.to_vec1() else {
+        let Ok(pred_vec) = pred.to_vec1::<f32>() else {
             continue;
         };
 
