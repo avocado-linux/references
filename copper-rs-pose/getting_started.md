@@ -129,6 +129,8 @@ Log in as `root` with an empty password. The service starts automatically at boo
 
    When the app starts, it moves the files of the last run into `previous/`, and deletes the files that were in `previous/`. Thus, after a restart, the log of the run that stopped is in `previous/`. A manual run does the same to the log of the service.
 
+   The app moves the files only if the last run lasted 30 seconds or more. If the app cannot start (for example, with no camera), systemd restarts it every 5 seconds. These short runs do not replace the log in `previous/`.
+
    During one run, copper-rs does not delete old files. The log grows each day that the app runs. Delete the files when you need disk space. For a device that runs for weeks, set `enable_task_logging: false` in the `logging` section of `app/copperconfig.ron`.
 
 4. Get the IP address of the device:
