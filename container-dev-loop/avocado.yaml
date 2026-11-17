@@ -1,0 +1,140 @@
+cli_requirement: ">=0.41.0"
+
+default_target: "qemux86-64"
+
+supported_targets:
+  - qemux86-64
+  - imx93-frdm
+
+##
+## Distribution
+##
+
+distro:
+  release: 2026
+  channel: edge
+
+##
+## Runtimes
+##
+
+runtimes:
+  dev:
+    extensions:
+      - hello
+      - avocado-ext-docker
+      - avocado-ext-container-agent-dev
+      - avocado-ext-sshd-dev
+      - avocado-ext-dev
+      - avocado-bsp-{{ avocado.target.board }}
+    packages:
+      avocado-runtime: "*"
+
+    # Presence of this block enables container dev mode for the runtime.
+    # `ref` is the image built on the host; `service` is the unit on the
+    # target that runs it and is restarted after a pull.
+    container_dev:
+      images:
+        - ref: peridionick/hello-flask:py311
+          service: container-hello
+
+##
+## Extensions
+##
+
+extensions:
+  # Project-local extension: the systemd unit that runs the container and the
+  # image it needs primed into /var at runtime build.
+  hello:
+    # confext is not optional: enable_services writes its .wants symlink into
+    # /etc/systemd/system/<target>.wants, and sysext carries the unit itself
+    # under /usr/lib/systemd/system. Dropping either leaves the unit present
+    # but disabled.
+    types:
+      - sysext
+      - confext
+    version: "1.0.0"
+    summary: "Hello-from-Avocado Python 3.11 + Flask container"
+
+    enable_services:
+      - container-hello.service
+
+    overlay: overlay
+
+    docker_images:
+      - image: docker.io/peridionick/hello-flask
+        tag: py311
+
+  avocado-ext-docker:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-container-agent-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-sshd-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-ext-dev:
+    source:
+      type: package
+      version: "*"
+
+  avocado-bsp-{{ avocado.target.board }}:
+    source:
+      type: package
+      version: "*"
+
+##
+## Images
+##
+
+rootfs:
+  permissions: dev
+
+initramfs:
+  permissions: dev
+
+##
+## Permissions
+##
+
+# NOT FOR PRODUCTION: the `dev` profile sets an empty root password. Container
+# dev mode bootstraps the target over SSH, so the device must be reachable as
+# root@<device> (set AVOCADO_CONTAINER_DEV_DEVICE) with your SSH key accepted.
+permissions:
+  dev:
+    users:
+      root:
+        password: ""
+
+##
+## SDK
+##
+
+sdk:
+  image: "docker.io/avocadolinux/sdk:{{ config.distro.release }}"
+
+  container_args:
+    - --privileged
+    - --network=host
+    - -v /dev:/dev
+    - -v /sys:/sys
+
+  # The agent extension is compiled for the target at build time, and a
+  # package-sourced extension does not carry its toolchain across.
+  packages:
+    avocado-sdk-toolchain: "*"
+    nativesdk-binutils: "*"
+    nativesdk-cargo: "*"
+    nativesdk-docker: "*"
+    nativesdk-gcc: "*"
+    nativesdk-glibc-dev: "*"
+    nativesdk-libgcc-dev: "*"
+    nativesdk-rust: "*"
+    packagegroup-rust-cross-canadian-avocado-{{ avocado.target }}: "*"
