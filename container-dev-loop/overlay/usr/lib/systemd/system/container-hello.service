@@ -10,10 +10,10 @@ After=docker.service
 [Service]
 Type=simple
 
-# The image is primed into /var/lib/docker at runtime-build time by the
-# docker_images: declaration in this extension's avocado.yaml, so a
-# factory-provisioned device runs it without ever contacting a registry - which
-# matters on a minimal Avocado rootfs that carries no CA bundle of its own.
+# The image is meant to be primed into /var/lib/docker at runtime-build time by
+# the docker_images: declaration in this extension's avocado.yaml. Priming is
+# not verified, so do not rely on it: first boot may need registry access to
+# pull the image, and the docker extension installs the CA bundle that needs.
 #
 # docker_images is honored only on a RUNTIME build. A standalone
 # `avocado ext build` of this extension ignores it silently, and the container

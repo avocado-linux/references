@@ -38,7 +38,7 @@ This syncs the SDK toolchain and the runtime extensions. The `sdk.packages` bloc
 avocado build
 ```
 
-The build produces the `dev` runtime. It includes the project-local `hello` extension (the `container-hello.service` unit, enabled in both its sysext and confext), Docker, the container dev agent, the SSH server and the board support package. The `hello` extension declares `docker.io/peridionick/hello-flask:py311` to be primed into `/var` at runtime build, so the device can start the service without contacting a registry. The build log does not show the priming step, so confirm it on your build.
+The build produces the `dev` runtime. It includes the project-local `hello` extension (the `container-hello.service` unit, enabled in both its sysext and confext), Docker, the container dev agent, the SSH server and the board support package. The `hello` extension declares `docker.io/peridionick/hello-flask:py311` to be primed into `/var` at runtime build, with the intent that the device does not need a registry at first boot. Priming is not verified: the build log does not show the step. Until you have confirmed it on your build, give the device registry access at first boot so it can pull the image.
 
 ## Deploy
 
@@ -115,7 +115,7 @@ avocado container dev status
 To confirm a hot reload, rebuild the watched tag on your host:
 
 ```bash
-docker build -t peridionick/hello-flask:py311 .
+docker build -t peridionick/hello-flask:py311 app
 ```
 
 Per the container dev mode guide, the watcher sees the tag event, pushes only the changed layers, and the agent on the device pulls them and restarts `container-hello`. Watch it from the device:
@@ -130,7 +130,7 @@ Docker builds on older daemons (before Docker 23) emit no tag event for BuildKit
 avocado container dev sync
 ```
 
-Run the build from a directory holding a Dockerfile for your own application. This reference ships no application source, so the page content comes from the published image until you build your own.
+The `app/` directory holds a minimal Dockerfile that layers one file on the published image, so the rebuild has a changed layer to ship. Replace it with your own application when you have one.
 
 Reading logs: the container runs on the device, not on your host, so `docker logs` on your host reports no such container. Use `ssh root@<device-ip> docker logs -f container-hello`.
 
@@ -139,7 +139,7 @@ Reading logs: the container runs on the device, not on your host, so `docker log
 - Your own image: set `container_dev.images[].ref` in `avocado.yaml` to the tag you build, byte for byte, and `service` to the unit that runs it. Update the image in `docker_images` of the `hello` extension and in `overlay/usr/lib/systemd/system/container-hello.service` to match.
 - The service must recreate the container from the image tag on every start. The shipped unit does so with `docker rm -f` followed by `docker run`. A unit that restarts an existing container keeps running the old code.
 - Ports: change `-p 8080:8080` in the unit. Override the dev loop ports with `AVOCADO_CONTAINER_DEV_PORT` (bulk read, default 5599) and `AVOCADO_CONTAINER_DEV_WS_PORT` (control, default 5600).
-- Architecture: when your host differs from the target, build with `docker build --platform linux/arm64 -t <ref> .` and then run `avocado container dev sync`.
+- Architecture: when your host differs from the target, build with `docker build --platform <platform> -t <ref> app`, using `linux/amd64` for `qemux86-64` and `linux/arm64` for `imx93-frdm`, and then run `avocado container dev sync`.
 - Disk: `avocado container dev prune` garbage-collects the host registry store.
 - Stop the loop with `avocado container dev down`. The device keeps running the last image it was given.
 - Only one runtime per config may carry a `container_dev` block, and `avocado-ext-container-agent-dev` must not be part of a production runtime.

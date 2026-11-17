@@ -19,7 +19,7 @@ The `dev` runtime in `avocado.yaml` combines these pieces:
 
 - Extensions `avocado-ext-docker` (provides dockerd), `avocado-ext-container-agent-dev` (the on-device agent that receives pushed images), `avocado-ext-sshd-dev`, `avocado-ext-dev` and the board BSP extension, plus the project-local `hello` extension.
 - `hello` is both a `sysext` and a `confext`. The sysext carries the `container-hello.service` unit under `usr/lib/systemd/system`, and the confext carries the `.wants` symlink that `enable_services` writes. Dropping either leaves the unit present but disabled.
-- `hello` declares `docker_images` for `docker.io/peridionick/hello-flask:py311`, so the image is designed to be primed into the `/var` partition when the runtime is built, and first boot then needs no registry contact. A local build of this project did not log the priming step, so confirm it on your own build.
+- `hello` declares `docker_images` for `docker.io/peridionick/hello-flask:py311`, so the image is designed to be primed into the `/var` partition when the runtime is built, with the intent that first boot needs no registry contact. Priming is unverified, so give the device registry access at first boot until you have confirmed it. A local build of this project did not log the priming step, so confirm it on your own build.
 - The `container_dev` block on the runtime enables container dev mode. Its `images` entry pairs `ref: peridionick/hello-flask:py311` with `service: container-hello`.
 
 The container serves its page on port 8080. The `dev` permissions profile sets an empty root password, because container dev mode bootstraps the target over SSH as `root@<device>`.
