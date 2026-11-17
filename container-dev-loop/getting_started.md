@@ -38,7 +38,7 @@ This syncs the SDK toolchain and the runtime extensions. The `sdk.packages` bloc
 avocado build
 ```
 
-The build produces the `dev` runtime. It includes the project-local `hello` extension (the `container-hello.service` unit, enabled in both its sysext and confext), Docker, the container dev agent, the SSH server and the board support package. The `hello` extension also primes `docker.io/peridionick/hello-flask:py311` into `/var` at runtime build, so the device starts the service without contacting a registry.
+The build produces the `dev` runtime. It includes the project-local `hello` extension (the `container-hello.service` unit, enabled in both its sysext and confext), Docker, the container dev agent, the SSH server and the board support package. The `hello` extension declares `docker.io/peridionick/hello-flask:py311` to be primed into `/var` at runtime build, so the device can start the service without contacting a registry. The build log does not show the priming step, so confirm it on your build.
 
 ## Deploy
 
