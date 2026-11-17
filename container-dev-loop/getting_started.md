@@ -12,7 +12,7 @@ Nothing in this guide records a run: the Deploy and Verify sections describe the
 - The latest [Avocado CLI](https://docs.peridio.com/guides/avocado-cli/overview). This reference requires `>=0.41.0`.
 - A target from the reference's `supported_targets`: `qemux86-64` (default) or `imx93-frdm`.
 - A device running the provisioned `dev` runtime that your host can reach over SSH as `root@<device>`.
-- `avocado-ext-sshd-dev` version 0.1.1 or newer on the device. Container dev mode bootstraps the device over SSH, so a target without an SSH server cannot be bootstrapped.
+- `avocado-ext-sshd-dev` on the device. Container dev mode bootstraps the device over SSH, so a target without an SSH server cannot be bootstrapped. The reference's `hello` overlay adds an sshd drop-in for the key path, so the 0.1.0 package in the feed is enough.
 - Control (5600) and bulk read (5599) ports on your host reachable from the device. Opening only the control port is the usual reason a sync appears to stall.
 
 ## Initialize
@@ -60,14 +60,15 @@ Boot the device and find its IP address from the console (`ip addr`). Substitute
 
 ### Give the host SSH access
 
-Container dev mode needs `root@<device-ip>` reachable over SSH with your key accepted. For `avocado-ext-sshd-dev` the authorized keys file is `/var/lib/ssh/authorized_keys.d/root`. It does not exist on a freshly provisioned device, so create it from the console as root and paste your public key:
+Container dev mode needs `root@<device-ip>` reachable over SSH with your key accepted. `avocado-ext-sshd-dev` 0.1.0 reads `.ssh/authorized_keys`, so the `hello` overlay installs `/etc/ssh/sshd_config.d/10-authorized-keys.conf`, which sets `AuthorizedKeysFile /var/lib/ssh/authorized_keys.d/root`. That file does not exist on a freshly provisioned device, so create it from the console as root and paste your public key:
 
 ```bash
 mkdir -p /var/lib/ssh/authorized_keys.d
 echo "<your public key>" > /var/lib/ssh/authorized_keys.d/root
+chmod 600 /var/lib/ssh/authorized_keys.d/root
 ```
 
-This location needs `avocado-ext-sshd-dev` 0.1.1 or newer. Check from your host:
+Check from your host:
 
 ```bash
 ssh root@<device-ip> true
