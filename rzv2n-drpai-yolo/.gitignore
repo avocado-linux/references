@@ -5,9 +5,8 @@ app/build/
 .debug/
 
 # YOLOv3 DRP-AI3 model bundle (small graph metadata + DRP descriptors +
-# the multi-MB compiled deploy.so) is fetched at build time by
-# fetch-model.sh from renesas-rz/rzv_ai_sdk@v6.00. Keep it out of git —
-# the deploy.so is several MB and the bundle is regenerable.
+# the ~180 MB compiled deploy.so) is fetched by fetch-model.sh from
+# renesas-rz/rzv_ai_sdk@v8.00. Keep it out of git; it is regenerable.
 app/overlay/usr/lib/rzv2n-drpai-yolo/model/
 
 # Sample video fetched by fetch-video.sh.

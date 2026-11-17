@@ -10,7 +10,7 @@ supported_targets:
 ##
 
 distro:
-  release: 2024
+  release: 2026
   channel: edge
 
 ##
@@ -19,7 +19,6 @@ distro:
 
 runtimes:
   dev:
-    stone_manifest: stone-rzv2n-sr-som.json
     extensions:
       - avocado-ext-dev
       - avocado-ext-sshd-dev
@@ -60,12 +59,11 @@ extensions:
         compile: app
         install: app-install.sh
 
-      # DRP-AI3 inference runtime (libtvm_runtime.so).
-      # Self-contained: Mera2/DRP/ACL all baked in for V2N.
-      lib-tvm: "*"
-
-      # DRP-AI UAPI header (linux/drpai.h) — for /dev/drpai0.
-      drpai: "*"
+      # DRP-AI3 inference runtime: RUHMI (MERA2 runtime + DRP-AI TVM + ACL),
+      # and the out-of-tree /dev/drpai0 driver, which the BSP's
+      # kernel-modules set does not include.
+      lib-ruhmi: "*"
+      kernel-module-drpai: "*"
 
       # Renesas DMA memory manager (DRP-AI input/output buffer allocation).
       # The mmngr-user-module / mmngrbuf-user-module recipes produce packages
@@ -113,6 +111,7 @@ extensions:
     modprobe:
       - mmngr
       - mmngrbuf
+      - drpai
 
     # Only the main app service starts by default. The camera-init unit
     # ships in the overlay for users who want to flip to the camera flow
@@ -191,11 +190,10 @@ sdk:
         # opencv-staticdev — without it find_package(OpenCV) errors out.
         opencv-staticdev: "*"
 
-        # Renesas DRP-AI3 inference runtime + UAPI header.
-        # lib-tvm has no -dev split (the .so symlink ships in the main pkg
-        # via INSANE_SKIP=dev-so). drpai is a header-only recipe.
-        lib-tvm: "*"
-        drpai: "*"
+        # Renesas DRP-AI3 inference runtime + UAPI header (linux/drpai.h).
+        # lib-ruhmi ships its .so linker names in the main package.
+        lib-ruhmi: "*"
+        kernel-module-drpai-dev: "*"
 
         # Renesas memory manager userspace libs. Packages are named after
         # SONAME (Yocto auto-rename): libmmngr-dev / libmmngrbuf-dev contain
@@ -209,5 +207,5 @@ sdk:
   packages:
     avocado-sdk-toolchain: "*"
     nativesdk-cmake: "*"
-    nativesdk-pkgconfig: "*"
+    nativesdk-pkgconf: "*"
     nativesdk-git: "*"

@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 
-# Cross-compiles the YOLOX-S DRP-AI3 inference app inside the avocado SDK
-# container. Clones renesas-rz/rzv_drp-ai_tvm at a pinned tag for the TVM
-# headers and the MeraDrpRuntimeWrapper glue, then builds against the
-# target sysroot's libtvm_runtime.so (provided by the lib-tvm package).
+# Cross-compiles the YOLOv3 DRP-AI3 inference app inside the avocado SDK
+# container. Clones renesas-rz/rzv_drp-ai_tvm (RUHMI) at a pinned release for
+# the TVM/MERA2 headers and the MeraDrpRuntimeWrapper glue, then builds
+# against the target sysroot's MERA2 / DRP-AI TVM runtime (lib-ruhmi).
 
 set -euo pipefail
 
-# Pinned RUHMI tag — bump deliberately. Headers must match the runtime
-# version shipped by lib-tvm.bb in meta-rz-drpai (currently 2.5.1).
-RUHMI_TAG="v2.5.1"
+# Pinned RUHMI release — bump deliberately. It must match the runtime that
+# lib-ruhmi ships (RUHMI_R2026-06) and the model in fetch-model.sh.
+RUHMI_TAG="Release-2026-06-30"
 RUHMI_URL="https://github.com/renesas-rz/rzv_drp-ai_tvm.git"
 RUHMI_DIR="app/build/ruhmi"
+# mera_runtime.h includes asio (header-only); RUHMI's own setup clones it.
+ASIO_TAG="asio-1-30-2"
+ASIO_URL="https://github.com/chriskohlhoff/asio.git"
+ASIO_DIR="app/build/asio"
 BUILD_DIR="app/build/cmake"
 
 echo "============================================"
@@ -20,39 +24,23 @@ echo "  RUHMI: $RUHMI_TAG"
 echo "  Sysroot: ${OECORE_TARGET_SYSROOT:-<unset>}"
 echo "============================================"
 
-# ---------------------------------------------------------------------------
-# Fetch RUHMI source for TVM headers + MeraDrpRuntimeWrapper
-# ---------------------------------------------------------------------------
 mkdir -p app/build
 if [ ! -d "$RUHMI_DIR" ]; then
-    echo "Cloning RUHMI $RUHMI_TAG (with submodules for TVM)..."
-    git clone --depth 1 --branch "$RUHMI_TAG" --recurse-submodules --shallow-submodules \
-        "$RUHMI_URL" "$RUHMI_DIR"
-else
-    echo "RUHMI source already present at $RUHMI_DIR (skip clone)"
+    echo "Cloning RUHMI $RUHMI_TAG (with the tvm submodule)..."
+    git clone --depth 1 --branch "$RUHMI_TAG" "$RUHMI_URL" "$RUHMI_DIR"
+    git -C "$RUHMI_DIR" submodule update --init --depth 1 tvm
+    git -C "$RUHMI_DIR/tvm" submodule update --init --depth 1 \
+        3rdparty/dlpack 3rdparty/dmlc-core
+fi
+if [ ! -d "$ASIO_DIR" ]; then
+    git clone --depth 1 --branch "$ASIO_TAG" "$ASIO_URL" "$ASIO_DIR"
 fi
 
-# ---------------------------------------------------------------------------
-# Apply RUHMI's DRP-AI environment setup
-# ---------------------------------------------------------------------------
-# setup/make_drp_env.sh overlays Renesas-patched TVM headers (with kDLDrpAi
-# enum + DRP-AI device API) on top of the upstream apache/tvm submodule.
-# Idempotent guard via a stamp file — re-running the script after the
-# headers are already in place would fail on the symlink creation.
-RUHMI_STAMP="$RUHMI_DIR/.avocado-drp-env-setup.done"
-if [ ! -f "$RUHMI_STAMP" ]; then
-    echo "Setting up RUHMI DRP-AI environment (PRODUCT=V2N)..."
-    (cd "$RUHMI_DIR" && PRODUCT=V2N bash setup/make_drp_env.sh)
-    touch "$RUHMI_STAMP"
-else
-    echo "RUHMI DRP-AI env already set up (skip)"
-fi
+# RUHMI's setup overlays Renesas-patched TVM runtime headers (kDLDrpAi and
+# the DRP-AI device API) on the tvm submodule. Idempotent: cp overwrites.
+cp "$RUHMI_DIR"/setup/include/*.h "$RUHMI_DIR"/tvm/include/tvm/runtime/
 
-# ---------------------------------------------------------------------------
-# Generate CMake toolchain file from SDK environment
-# ---------------------------------------------------------------------------
-TOOLCHAIN_FILE="/tmp/avocado-rzv2n-toolchain.cmake"
-
+TOOLCHAIN_FILE="app/build/toolchain.cmake"
 cat > "$TOOLCHAIN_FILE" <<EOF
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR aarch64)
@@ -65,18 +53,12 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 EOF
 
-echo "Toolchain file: $TOOLCHAIN_FILE"
-
-# ---------------------------------------------------------------------------
-# Configure + build
-# ---------------------------------------------------------------------------
-RUHMI_ABS="$(cd "$RUHMI_DIR" && pwd)"
-
 cmake -S app/src -B "$BUILD_DIR" \
-    -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN_FILE" \
+    -DCMAKE_TOOLCHAIN_FILE="$(pwd)/$TOOLCHAIN_FILE" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_BUILD_TYPE=Release \
-    -DRUHMI_DIR="$RUHMI_ABS"
+    -DRUHMI_DIR="$(cd "$RUHMI_DIR" && pwd)" \
+    -DASIO_DIR="$(cd "$ASIO_DIR" && pwd)"
 
 cmake --build "$BUILD_DIR" -j"$(nproc)"
 
