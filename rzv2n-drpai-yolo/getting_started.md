@@ -1,6 +1,6 @@
 # Getting Started with RZ/V2N DRP-AI3 YOLOv3 Object Detection
 
-This guide walks through building and running the YOLOv3 object detection reference on the SolidRun RZ/V2N HummingBoard. The app pulls frames from a looping video file (default) or the IMX678 MIPI CSI-2 camera, runs YOLOv3 (Darknet/COCO) inference on the RZ/V2N's on-chip DRP-AI3 accelerator using Renesas's pre-compiled TVM bundle from the RZ/V2N AI SDK v6.30, and renders the annotated feed full-screen on Wayland/Weston.
+This guide walks through building and running the YOLOv3 object detection reference on the SolidRun RZ/V2N HummingBoard. The app pulls frames from a looping video file (default) or the IMX678 MIPI CSI-2 camera, runs YOLOv3 (Darknet/COCO) inference on the RZ/V2N's on-chip DRP-AI3 accelerator using Renesas's prebuilt model from the RZ/V2N AI SDK v8.00 (compiled with RUHMI 2026-06), and renders the annotated feed full-screen on Wayland/Weston.
 
 ## Prerequisites
 
@@ -25,7 +25,7 @@ cd rzv2n-drpai-yolo
 ./fetch-model.sh
 ```
 
-Pulls Renesas's pre-compiled YOLOv3 bundle from [rzv_ai_sdk](https://github.com/renesas-rz/rzv_ai_sdk) v6.00 — the small graph metadata + DRP-AI/AI-MAC engine descriptors from the repo, and the multi-MB compiled `deploy.so` from the release asset. Lands at `app/overlay/usr/lib/rzv2n-drpai-yolo/model/yolov3/`. `.gitignore`d.
+Pulls Renesas's prebuilt YOLOv3 bundle from [rzv_ai_sdk](https://github.com/renesas-rz/rzv_ai_sdk) v8.00 — the MERA2 plan, subgraph metadata and a reference input with its expected outputs from the repo, and the ~180 MB compiled `deploy.so` from the release asset. Lands at `app/overlay/usr/lib/rzv2n-drpai-yolo/model/yolov3/`. `.gitignore`d.
 
 ## Fetch the sample video
 
@@ -49,7 +49,7 @@ The script's comments list a couple of curated alternatives (front-door delivery
 avocado install -f
 ```
 
-Pulls the SDK container image and resolves runtime dependencies — `lib-tvm` (DRP-AI3 inference runtime), `drpai` (UAPI header for `/dev/drpai0`), the Renesas memory manager userspace libraries, GStreamer with libav/qtdemux/h264parse for video decode + `waylandsink`, OpenCV, and Weston.
+Pulls the SDK container image and resolves runtime dependencies — `lib-ruhmi` (the RUHMI DRP-AI3 inference runtime), the `/dev/drpai0` UAPI header from `kernel-module-drpai-dev`, the Renesas memory manager userspace libraries, GStreamer with libav/qtdemux/h264parse for video decode + `waylandsink`, OpenCV, and Weston.
 
 ## Build
 
@@ -57,15 +57,15 @@ Pulls the SDK container image and resolves runtime dependencies — `lib-tvm` (D
 avocado build
 ```
 
-`app-compile.sh` clones [rzv_drp-ai_tvm](https://github.com/renesas-rz/rzv_drp-ai_tvm) at `v2.5.1`, runs `setup/make_drp_env.sh` with `PRODUCT=V2N` to overlay Renesas's DRP-AI-patched TVM headers (`kDLDrpAi`), then cmake cross-compiles the YOLOv3 inference binary linking against the target's `libtvm_runtime.so`.
+`app-compile.sh` clones [rzv_drp-ai_tvm](https://github.com/renesas-rz/rzv_drp-ai_tvm) (RUHMI) at `Release-2026-06-30` with its `tvm` submodule, overlays Renesas's DRP-AI-patched TVM runtime headers (`kDLDrpAi`), then cmake cross-compiles the YOLOv3 inference binary against the target's MERA2 runtime (`libmera2_runtime.so`, `libdrp_tvm_rt.so` from `lib-ruhmi`). The RUHMI release must match the `lib-ruhmi` runtime in the feed and the model in `fetch-model.sh`.
 
 ## Deploy
 
 ```bash
-avocado provision -r dev --profile sd --env AVOCADO_SD_DEVICE=/dev/sdX
+avocado provision -r dev --profile emmc
 ```
 
-(Replace `/dev/sdX` with your SD card device. Use `--profile emmc` for eMMC.)
+The board must be in U-Boot's USB mass-storage mode; see the board's provisioning docs. Use `--profile sd` for the microSD card.
 
 ## Verify
 
@@ -85,7 +85,7 @@ rzv2n-drpai-yolo starting
   drp_start_addr: 0xd0000000
   model loaded — outputs=3
   pipelines running
-  frames=150 inference_avg=78.4ms detections_last=2
+frames=46 inference_avg=77.7ms detections_last=4
 ```
 
 The annotated video plays full-screen on the connected HDMI display, looping when it reaches end-of-file.
@@ -113,17 +113,28 @@ Environment=CONFIDENCE_THRESHOLD=0.4
 Environment=NMS_THRESHOLD=0.5
 ```
 
-### Override the DRP-AI reserved-memory base
+### Check the accelerator
 
-If the `drp_reserved` carveout in your DTSI sits elsewhere:
+Stop the service and run one inference on Renesas's reference input; every output must match the compiler's expected output:
+
+```bash
+systemctl stop rzv2n-drpai-yolo
+cd /usr/lib/rzv2n-drpai-yolo && rzv2n-drpai-yolo --selftest
+```
+
+Each output head prints its correlation with the reference; the DRP-AI3 runs the model quantized, so values drift slightly from the compiler's float reference (correlation about 0.97). It ends with `SELFTEST: PASS` (exit 0, every head at or above `SELFTEST_MIN_CORRELATION`, default 0.95) or `SELFTEST: FAIL` (exit 1).
+
+### Override the DRP-AI memory area
+
+The app asks the DRP-AI driver for its memory area. To force another address:
 
 ```ini
-Environment=DRP_START_ADDR=0x90000000
+Environment=DRP_START_ADDR=0xd0000000
 ```
 
 ### Rebuild after changes
 
 ```bash
 avocado build
-avocado provision -r dev --profile sd --env AVOCADO_SD_DEVICE=/dev/sdX
+avocado provision -r dev --profile emmc
 ```

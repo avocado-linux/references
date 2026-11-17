@@ -3,8 +3,13 @@
 // Object-detection demo for the SolidRun RZ/V2N HummingBoard. Pulls frames
 // from either a video file (default, looping on EOS) or the on-board IMX678
 // MIPI CSI-2 camera, runs YOLOv3 (Darknet/COCO) inference on the on-chip
-// DRP-AI3 accelerator using Renesas's RZ/V2N AI SDK v6.30 prebuilt model,
-// and renders the annotated feed full-screen on Wayland/Weston.
+// DRP-AI3 accelerator using Renesas's RZ/V2N AI SDK v8.00 prebuilt model
+// (compiled with RUHMI 2026-06), and renders the annotated feed full-screen
+// on Wayland/Weston.
+//
+// `rzv2n-drpai-yolo --selftest` instead runs the model once on Renesas's
+// reference input and compares the DRP-AI3 outputs with the compiler's
+// expected outputs: a check of the accelerator without camera or display.
 //
 // The IMX678 path is currently broken upstream: the rzg2l-cru driver
 // misreports its V4L2 format for 4K (claims 3840x2160 8-bit RGGB, actually
@@ -13,7 +18,7 @@
 // Until the driver is fixed, the demo defaults to a looping video file —
 // set VIDEO_PATH="" and CAMERA_DEVICE=/dev/video0 to flip back.
 //
-// Why YOLOv3 (not YOLOX-S): the only TVM-compiled object-detection bundle
+// Why YOLOv3 (not YOLOX-S): the only compiled object-detection bundle
 // Renesas publishes for V2N is YOLOv3 — see fetch-model.sh.
 
 #include "yolov3.h"
@@ -25,6 +30,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cerrno>
+#include <cmath>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <tuple>
@@ -36,6 +44,11 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
+
+#include <fcntl.h>
+#include <linux/drpai.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 #include "MeraDrpRuntimeWrapper.h"
 
@@ -53,9 +66,11 @@ struct Config {
     std::string labels_path  = "/usr/lib/rzv2n-drpai-yolo/labels.txt";
     float confidence         = 0.5f;
     float nms                = 0.5f;
-    // DRP-AI reserved-region physical start address. SolidRun rzv2n DTSI
-    // puts `drp_reserved` at 0xD0000000. Override via env DRP_START_ADDR.
-    uint64_t drp_start_addr  = 0xD0000000ULL;
+    // DRP-AI memory area start address. 0 = ask the DRP-AI driver.
+    // Override via env DRP_START_ADDR.
+    uint64_t drp_start_addr  = 0;
+    // Display sink; e.g. DISPLAY_SINK=fakesink to run without a display.
+    std::string sink         = "waylandsink fullscreen=true sync=false";
 };
 
 Config load_config() {
@@ -73,10 +88,29 @@ Config load_config() {
     c.labels_path = env("LABELS_PATH", c.labels_path.c_str());
     c.confidence  = std::stof(env("CONFIDENCE_THRESHOLD", std::to_string(c.confidence).c_str()));
     c.nms         = std::stof(env("NMS_THRESHOLD", std::to_string(c.nms).c_str()));
+    c.sink        = env("DISPLAY_SINK", c.sink.c_str());
     if (const char* v = std::getenv("DRP_START_ADDR")) {
         c.drp_start_addr = std::strtoull(v, nullptr, 0);
     }
     return c;
+}
+
+// The DRP-AI memory area comes from the driver (its reserved-memory node),
+// as Renesas's AI SDK apps do; no address is baked into the app.
+uint64_t drpai_area_start() {
+    const int fd = open("/dev/drpai0", O_RDWR);
+    if (fd < 0) {
+        g_printerr("ERROR: open /dev/drpai0: %s\n", std::strerror(errno));
+        return 0;
+    }
+    drpai_data_t area{};
+    const int ret = ioctl(fd, DRPAI_GET_DRPAI_AREA, &area);
+    close(fd);
+    if (ret != 0) {
+        g_printerr("ERROR: DRPAI_GET_DRPAI_AREA: %s\n", std::strerror(errno));
+        return 0;
+    }
+    return area.address;
 }
 
 std::atomic<bool> g_running{true};
@@ -206,7 +240,7 @@ GstElement* build_display_pipeline(const Config& c, GError** err) {
         ",height=" + std::to_string(c.height) +
         ",framerate=" + std::to_string(c.framerate) + "/1"
         " ! videoconvert"
-        " ! waylandsink fullscreen=true sync=false";
+        " ! " + c.sink;
     return gst_parse_launch(desc.c_str(), err);
 }
 
@@ -264,16 +298,80 @@ gboolean on_capture_bus_message(GstBus* /*bus*/, GstMessage* msg, gpointer data)
     return TRUE;
 }
 
+template <typename T>
+std::vector<T> read_file(const std::string& path) {
+    std::ifstream f(path, std::ios::binary | std::ios::ate);
+    if (!f) return {};
+    std::vector<T> v(static_cast<size_t>(f.tellg()) / sizeof(T));
+    f.seekg(0);
+    f.read(reinterpret_cast<char*>(v.data()), v.size() * sizeof(T));
+    return v;
+}
+
+// One inference on the bundle's reference input; every output must match
+// the compiler's expected output (interpreter_out/ref_result_<i>_fp16.bin).
+int selftest(MeraDrpRuntimeWrapper& runtime, const Config& cfg) {
+    const std::string dir = cfg.model_dir + "/interpreter_out";
+    const auto input = read_file<float>(dir + "/input_0.bin");
+    if (input.size() != 3u * YOLOV3_INPUT_SIZE * YOLOV3_INPUT_SIZE) {
+        g_printerr("SELFTEST: FAIL bad reference input %s\n", dir.c_str());
+        return 1;
+    }
+    const double tol = std::stod(std::getenv("SELFTEST_MIN_CORRELATION")
+                                     ? std::getenv("SELFTEST_MIN_CORRELATION") : "0.95");
+    runtime.SetInput(0, input.data());
+    const auto t0 = std::chrono::steady_clock::now();
+    runtime.Run();
+    const double ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - t0).count();
+
+    bool ok = runtime.GetNumOutput() == 3;
+    for (int i = 0; i < runtime.GetNumOutput(); ++i) {
+        const auto [type, data, n] = runtime.GetOutput(i);
+        const auto ref = read_file<uint16_t>(
+            dir + "/ref_result_" + std::to_string(i) + "_fp16.bin");
+        if (type != InOutDataType::FLOAT16 || ref.size() != static_cast<size_t>(n)) {
+            g_printerr("SELFTEST: output %d: dtype or size mismatch (%lld vs %zu)\n",
+                       i, static_cast<long long>(n), ref.size());
+            ok = false;
+            continue;
+        }
+        const uint16_t* out = static_cast<const uint16_t*>(data);
+        // Pearson correlation: the DRP-AI3 runs the model quantized, so
+        // values drift from the compiler's reference; the shape must not.
+        double max_err = 0.0, sum_err = 0.0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0;
+        for (int64_t j = 0; j < n; ++j) {
+            const double x = fp16_to_float(out[j]), y = fp16_to_float(ref[j]);
+            max_err = std::max(max_err, std::fabs(x - y));
+            sum_err += std::fabs(x - y);
+            sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y;
+        }
+        const double corr = (n * sxy - sx * sy) /
+            std::sqrt((n * sxx - sx * sx) * (n * syy - sy * sy));
+        g_print("SELFTEST: output %d: %lld values, correlation %.4f, mean abs err %.4f "
+                "(ref mean abs %.4f), max %.4f\n",
+                i, static_cast<long long>(n), corr, sum_err / n,
+                std::sqrt(syy / n), max_err);
+        ok = ok && corr >= tol;
+    }
+    g_print("SELFTEST: inference %.1f ms\n", ms);
+    g_print("SELFTEST: %s\n", ok ? "PASS" : "FAIL");
+    return ok ? 0 : 1;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
-    (void)argc;
-    (void)argv;
+    const bool selftest_mode = argc > 1 && std::strcmp(argv[1], "--selftest") == 0;
 
     std::signal(SIGINT, on_signal);
     std::signal(SIGTERM, on_signal);
 
-    const Config cfg = load_config();
+    Config cfg = load_config();
+    if (cfg.drp_start_addr == 0) {
+        cfg.drp_start_addr = drpai_area_start();
+        if (cfg.drp_start_addr == 0) return 1;
+    }
     g_print("rzv2n-drpai-yolo starting\n");
     if (!cfg.video_path.empty()) {
         g_print("  source: video file %s\n", cfg.video_path.c_str());
@@ -298,6 +396,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     g_print("  model loaded — outputs=%d\n", runtime.GetNumOutput());
+    if (selftest_mode) return selftest(runtime, cfg);
 
     const int input_elems = 3 * YOLOV3_INPUT_SIZE * YOLOV3_INPUT_SIZE;
     std::vector<float> input_buf(input_elems);

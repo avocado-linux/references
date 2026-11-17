@@ -1,6 +1,8 @@
 [Unit]
 Description=RZ/V2N DRP-AI3 YOLOv3 object detection demo
-After=weston.service
+# Weston's system socket (/run/wayland-0); connecting waits for Weston.
+Requires=weston.socket
+After=weston.service weston.socket
 PartOf=weston.service
 ConditionPathExists=/dev/drpai0
 # Camera path is currently broken (rzg2l-cru / IMX678 format mismatch).
@@ -15,12 +17,8 @@ Type=simple
 User=root
 WorkingDirectory=/usr/lib/rzv2n-drpai-yolo
 
-# Wait for Weston's wayland socket. UID 970 matches the weston-init recipe
-# on this BSP (see /etc/passwd: weston:x:970:970:...).
-ExecStartPre=/bin/sh -c 'while [ ! -S /run/user/970/wayland-1 ]; do sleep 0.5; done; exec true'
-
-Environment=XDG_RUNTIME_DIR=/run/user/970
-Environment=WAYLAND_DISPLAY=wayland-1
+Environment=XDG_RUNTIME_DIR=/run
+Environment=WAYLAND_DISPLAY=/run/wayland-0
 Environment=GST_DEBUG=2
 # Default to looping video file (camera path is broken — see main.cpp).
 # Set VIDEO_PATH= (empty) + CAMERA_DEVICE=/dev/video0 to switch.
